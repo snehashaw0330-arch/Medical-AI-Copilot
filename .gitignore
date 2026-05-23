@@ -4,3 +4,5 @@ __pycache__/
 .env
 node_modules/
 processed-images/
+*.zip
+prescription-ocr/raw-images/
