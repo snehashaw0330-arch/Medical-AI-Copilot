@@ -1,69 +1,92 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send,
   Plus,
   MessageSquareText,
   Bot,
   User,
-  Sparkles,
   Trash2,
+  AlertTriangle,
+  Stethoscope,
+  ClipboardList,
+  ShieldAlert,
+  Activity,
 } from 'lucide-react'
 import Button from '@/ui/Button'
-import { cn } from '@/lib/utils'
+import Badge from '@/ui/Badge'
+import ConfidenceBar from '@/ui/ConfidenceBar'
+import { cn, titleCase } from '@/lib/utils'
+import { predictDisease } from '@/lib/api'
+import { savePrediction } from '@/lib/storage'
+import {
+  detectEmergency,
+  detectSymptoms,
+  FOLLOWUPS,
+  QUESTION_REGISTRY,
+  RED_FLAG_SYMPTOMS,
+  QUICK_ACTIONS,
+  band,
+  buildRecommendation,
+} from '@/lib/triage'
 
-/**
- * Replace this with a real call to Gemini/OpenAI (proxied through your backend
- * so the API key never reaches the browser). The function signature is kept
- * intentionally simple: (messages) => assistantText.
- *
- *   const { reply } = await API.post('/chat', { messages })
- *   return reply
- */
-async function generateReply(messages) {
-  const last = messages[messages.length - 1]?.content.toLowerCase() || ''
-  await new Promise((r) => setTimeout(r, 700 + Math.random() * 600))
+const CHAT_KEY = 'medisense-chats'
+const uid = () => crypto.randomUUID()
+const delay = (ms) => new Promise((r) => setTimeout(r, ms))
 
-  if (/(fever|cough|pain|headache|symptom|sick|cold)/.test(last)) {
-    return "It sounds like you're describing symptoms. I can help reason through them, but for a structured assessment head to the **Disease Prediction** tool — it returns the top-3 likely conditions with confidence and explanations. Could you tell me how long you've had these symptoms and their severity?"
-  }
-  if (/(medicine|drug|tablet|dose|dosage|side effect|substitute)/.test(last)) {
-    return 'I can explain medicines — uses, side effects, substitutes and drug class. For exact data, the **Medicine Search** tool queries the full database. Which medicine would you like to know about?'
-  }
-  if (/(prescription|ocr|handwrit|scan)/.test(last)) {
-    return 'You can upload a prescription photo in the **Prescription OCR** tool and I’ll extract the medicines, dosage and frequency — even from messy handwriting. Want me to walk you through it?'
-  }
-  if (/(hi|hello|hey)/.test(last)) {
-    return 'Hello! I’m your MediSense assistant. I can help you understand symptoms, explain medicines, and interpret prescriptions. What would you like to explore?'
-  }
-  return 'I’m a medical assistant for symptom discussion, medicine explanations and prescription help. Note: I provide general information only — always consult a licensed clinician. How can I help?'
-}
-
-const STARTERS = [
-  'What could cause a fever with body ache?',
-  'Explain the side effects of Azithromycin',
-  'How do I read a handwritten prescription?',
-]
+const GREETING =
+  "Hi, I'm your **MediSense triage assistant**. Tell me what's bothering you — " +
+  "for example *fever*, *cough*, or *headache* — and I'll ask a few questions to " +
+  'understand it better. I share general information only, not a medical diagnosis.'
 
 function newConversation() {
   return {
-    id: crypto.randomUUID(),
+    id: uid(),
     title: 'New chat',
-    messages: [
-      {
-        role: 'assistant',
-        content:
-          'Hi! I’m your **MediSense AI assistant**. Ask me about symptoms, medicines, or prescriptions. I’m here to help you understand — not to replace your doctor.',
-      },
-    ],
+    messages: [{ id: uid(), role: 'assistant', type: 'text', content: GREETING }],
+    tri: { symptoms: [], asked: [], queue: [], assessed: false, emergency: false },
   }
 }
 
+function load() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CHAT_KEY))
+    if (Array.isArray(raw) && raw.length) return raw
+  } catch {
+    /* ignore */
+  }
+  return [newConversation()]
+}
+
+const norm = (s) => s.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+
 export default function Chat() {
-  const [conversations, setConversations] = useState([newConversation()])
+  const [conversations, setConversations] = useState(load)
   const [activeId, setActiveId] = useState(conversations[0].id)
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
+  const [streamingId, setStreamingId] = useState(null)
+  const [busy, setBusy] = useState(false)
   const scrollRef = useRef(null)
+
+  // Refs mirror state so async triage steps always read the latest value.
+  const ref = useRef(conversations)
+  const activeRef = useRef(activeId)
+  const setConvs = (next) => {
+    ref.current = next
+    setConversations(next)
+  }
+  useEffect(() => {
+    activeRef.current = activeId
+  }, [activeId])
+
+  // Persist (Requirement #8)
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_KEY, JSON.stringify(conversations))
+    } catch {
+      /* quota */
+    }
+  }, [conversations])
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0]
 
@@ -71,46 +94,190 @@ export default function Chat() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [active?.messages, typing])
 
+  // ---------- state helpers (ref-backed) ----------
+  const getActive = () =>
+    ref.current.find((c) => c.id === activeRef.current) ?? ref.current[0]
+
   const updateActive = (updater) =>
-    setConversations((prev) =>
-      prev.map((c) => (c.id === activeId ? updater(c) : c)),
+    setConvs(ref.current.map((c) => (c.id === activeRef.current ? updater(c) : c)))
+
+  const pushMsg = (msg) =>
+    updateActive((c) => {
+      const isFirstUser = msg.role === 'user' && !c.messages.some((m) => m.role === 'user')
+      return {
+        ...c,
+        title: isFirstUser ? msg.content.slice(0, 36) : c.title,
+        messages: [...c.messages, msg],
+      }
+    })
+
+  const addSymptom = (sym) =>
+    updateActive((c) =>
+      c.tri.symptoms.some((s) => norm(s) === norm(sym))
+        ? c
+        : { ...c, tri: { ...c.tri, symptoms: [...c.tri.symptoms, sym] } },
     )
 
-  const send = async (text = input) => {
-    const content = text.trim()
-    if (!content || typing) return
-    setInput('')
-
-    const userMsg = { role: 'user', content }
-    updateActive((c) => ({
-      ...c,
-      title: c.messages.length <= 1 ? content.slice(0, 36) : c.title,
-      messages: [...c.messages, userMsg],
-    }))
-
+  // ---------- bot turns ----------
+  async function botStream(type, content, extra = {}) {
     setTyping(true)
-    const reply = await generateReply([...active.messages, userMsg])
+    await delay(450)
     setTyping(false)
-    updateActive((c) => ({
-      ...c,
-      messages: [...c.messages, { role: 'assistant', content: reply }],
-    }))
+    const msg = { id: uid(), role: 'assistant', type, content, ...extra }
+    pushMsg(msg)
+    setStreamingId(msg.id)
+  }
+
+  async function botEmergency(emg) {
+    setTyping(true)
+    await delay(350)
+    setTyping(false)
+    pushMsg({ id: uid(), role: 'assistant', type: 'emergency', content: emg.message, title: emg.title })
+  }
+
+  async function botContinue() {
+    const c = getActive()
+    if (c.tri.queue.length) {
+      const qid = c.tri.queue[0]
+      const q = QUESTION_REGISTRY[qid]
+      updateActive((cc) => ({
+        ...cc,
+        tri: { ...cc.tri, queue: cc.tri.queue.slice(1), asked: [...cc.tri.asked, qid] },
+      }))
+      await botStream('question', q.q, { qid: q.id, options: q.options })
+    } else if (!c.tri.symptoms.length) {
+      await botStream('text', 'Could you tell me your main symptom? For example: **fever**, **cough**, **headache**, or **stomach pain**.')
+    } else if (!c.tri.assessed) {
+      await botAssess()
+    }
+  }
+
+  async function botAssess() {
+    setTyping(true)
+    await delay(700)
+    const c = getActive()
+    const symptoms = c.tri.symptoms
+    let predictions = []
+    let apiOk = true
+    try {
+      const data = await predictDisease(symptoms, 3)
+      predictions = data.predictions || []
+    } catch {
+      apiOk = false
+    }
+    setTyping(false)
+
+    const redFlags = symptoms.filter((s) => RED_FLAG_SYMPTOMS.has(norm(s)))
+    const topConfidence = predictions[0]?.confidence ?? 0
+    const recommendation = buildRecommendation({
+      emergency: c.tri.emergency,
+      redFlags,
+      topConfidence,
+    })
+
+    pushMsg({
+      id: uid(),
+      role: 'assistant',
+      type: 'assessment',
+      data: { reported: symptoms, predictions: predictions.slice(0, 3), redFlags, recommendation, apiOk },
+    })
+    updateActive((cc) => ({ ...cc, tri: { ...cc.tri, assessed: true } }))
+
+    if (predictions.length) {
+      savePrediction({
+        symptoms,
+        topDisease: predictions[0].disease,
+        confidence: predictions[0].confidence,
+        level: band(predictions[0].confidence).label.toLowerCase(),
+      })
+    }
+  }
+
+  // Detect symptoms in text, record them, and queue their follow-ups.
+  function ingest(text) {
+    const found = detectSymptoms(text)
+    const c = getActive()
+    const queued = new Set([...c.tri.asked, ...c.tri.queue])
+    const newQ = []
+    for (const { symptom, label } of found) {
+      addSymptom(symptom)
+      const qs = FOLLOWUPS[label]
+      if (qs) for (const q of qs) if (!queued.has(q.id)) { queued.add(q.id); newQ.push(q.id) }
+    }
+    if (newQ.length) {
+      updateActive((cc) => ({
+        ...cc,
+        tri: { ...cc.tri, queue: [...cc.tri.queue, ...newQ], assessed: false },
+      }))
+    }
+    return found
+  }
+
+  // ---------- user actions ----------
+  async function send(text = input) {
+    const content = text.trim()
+    if (!content || busy) return
+    setInput('')
+    setBusy(true)
+    try {
+      pushMsg({ id: uid(), role: 'user', type: 'text', content })
+
+      const emg = detectEmergency(content)
+      if (emg && !getActive().tri.emergency) {
+        updateActive((c) => ({ ...c, tri: { ...c.tri, emergency: true } }))
+        await botEmergency(emg)
+      }
+      ingest(content)
+      await botContinue()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function answer(option) {
+    if (busy) return
+    setBusy(true)
+    try {
+      pushMsg({ id: uid(), role: 'user', type: 'text', content: option.label })
+      if (option.add) addSymptom(option.add)
+      await botContinue()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function assessNow() {
+    if (busy) return
+    setBusy(true)
+    try {
+      updateActive((c) => ({ ...c, tri: { ...c.tri, queue: [] } }))
+      await botAssess()
+    } finally {
+      setBusy(false)
+    }
   }
 
   const addChat = () => {
     const c = newConversation()
-    setConversations((prev) => [c, ...prev])
+    setConvs([c, ...ref.current])
     setActiveId(c.id)
   }
 
   const deleteChat = (id) => {
-    setConversations((prev) => {
-      const next = prev.filter((c) => c.id !== id)
-      const safe = next.length ? next : [newConversation()]
-      if (id === activeId) setActiveId(safe[0].id)
-      return safe
-    })
+    const next = ref.current.filter((c) => c.id !== id)
+    const safe = next.length ? next : [newConversation()]
+    setConvs(safe)
+    if (id === activeId) setActiveId(safe[0].id)
   }
+
+  // The latest question message is the only one that should show clickable chips.
+  const lastQuestionId = useMemo(() => {
+    const qs = active.messages.filter((m) => m.type === 'question')
+    return qs.length ? qs[qs.length - 1].id : null
+  }, [active.messages])
+
+  const showQuickActions = active.tri.symptoms.length === 0 && !busy
+  const canAssess = active.tri.symptoms.length > 0 && !active.tri.assessed
 
   return (
     <div className="grid h-[calc(100vh-8.5rem)] grid-cols-1 gap-4 lg:grid-cols-4">
@@ -125,20 +292,16 @@ export default function Chat() {
               key={c.id}
               className={cn(
                 'group flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-colors',
-                c.id === activeId
-                  ? 'bg-primary-soft text-primary'
-                  : 'text-muted hover:bg-surface-2',
+                c.id === activeId ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-2',
               )}
             >
-              <button
-                onClick={() => setActiveId(c.id)}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              >
+              <button onClick={() => setActiveId(c.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                 <MessageSquareText size={15} className="shrink-0" />
                 <span className="truncate">{c.title}</span>
               </button>
               <button
                 onClick={() => deleteChat(c.id)}
+                aria-label="Delete chat"
                 className="opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
               >
                 <Trash2 size={14} />
@@ -152,36 +315,52 @@ export default function Chat() {
       <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface lg:col-span-3">
         <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-primary to-accent text-white">
-            <Bot size={18} />
+            <Stethoscope size={18} />
           </span>
           <div>
-            <p className="font-semibold text-foreground">MediSense Assistant</p>
-            <p className="text-xs text-success">● Online</p>
+            <p className="font-semibold text-foreground">Triage Assistant</p>
+            <p className="text-xs text-success">● Online · informational only</p>
           </div>
         </div>
 
         <div ref={scrollRef} className="flex-1 space-y-5 overflow-auto p-5">
-          {active.messages.map((m, i) => (
-            <Bubble key={i} role={m.role} content={m.content} />
+          {active.messages.map((m) => (
+            <Message
+              key={m.id}
+              msg={m}
+              streaming={streamingId === m.id}
+              onStreamDone={() => setStreamingId((id) => (id === m.id ? null : id))}
+              showChips={m.id === lastQuestionId && !active.tri.assessed && !busy && streamingId !== m.id}
+              onAnswer={answer}
+            />
           ))}
           {typing && <TypingBubble />}
 
-          {active.messages.length === 1 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {STARTERS.map((s) => (
+          {/* Quick actions (Requirement #11) */}
+          {showQuickActions && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {QUICK_ACTIONS.map((q) => (
                 <button
-                  key={s}
-                  onClick={() => send(s)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-2 text-sm text-foreground hover:border-primary/50 hover:bg-surface-2"
+                  key={q}
+                  onClick={() => send(q)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:border-primary/50 hover:bg-surface-2"
                 >
-                  <Sparkles size={13} className="text-primary" /> {s}
+                  <Plus size={13} className="text-primary" /> {q}
                 </button>
               ))}
             </div>
           )}
         </div>
 
+        {/* Composer */}
         <div className="border-t border-border p-3">
+          {canAssess && (
+            <div className="mb-2 flex justify-center">
+              <Button size="sm" variant="secondary" onClick={assessNow} disabled={busy}>
+                <ClipboardList size={15} /> Get assessment now
+              </Button>
+            </div>
+          )}
           <div className="flex items-end gap-2 rounded-2xl border border-border bg-background p-2">
             <textarea
               value={input}
@@ -193,15 +372,15 @@ export default function Chat() {
                 }
               }}
               rows={1}
-              placeholder="Ask about symptoms, medicines, or prescriptions…"
+              placeholder="Describe your symptoms…"
               className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-foreground outline-none placeholder:text-muted"
             />
-            <Button size="icon" onClick={() => send()} disabled={!input.trim() || typing}>
+            <Button size="icon" onClick={() => send()} disabled={!input.trim() || busy}>
               <Send size={16} />
             </Button>
           </div>
           <p className="mt-2 text-center text-[11px] text-muted">
-            AI assistant — informational only. Not a substitute for professional care.
+            Triage assistant — general information only. Not a diagnosis. In an emergency, call your local emergency number.
           </p>
         </div>
       </div>
@@ -209,8 +388,14 @@ export default function Chat() {
   )
 }
 
-function Bubble({ role, content }) {
-  const isUser = role === 'user'
+// ============================================================
+//  Message renderer
+// ============================================================
+function Message({ msg, streaming, onStreamDone, showChips, onAnswer }) {
+  if (msg.type === 'emergency') return <EmergencyBubble title={msg.title} content={msg.content} />
+  if (msg.type === 'assessment') return <Assessment data={msg.data} />
+
+  const isUser = msg.role === 'user'
   return (
     <div className={cn('flex animate-fade-up gap-3', isUser && 'flex-row-reverse')}>
       <span
@@ -221,15 +406,137 @@ function Bubble({ role, content }) {
       >
         {isUser ? <User size={16} /> : <Bot size={16} />}
       </span>
-      <div
-        className={cn(
-          'max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
-          isUser
-            ? 'rounded-tr-sm bg-primary text-primary-foreground'
-            : 'rounded-tl-sm bg-surface-2 text-foreground',
+      <div className="max-w-[82%] space-y-2">
+        <div
+          className={cn(
+            'rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+            isUser ? 'rounded-tr-sm bg-primary text-primary-foreground' : 'rounded-tl-sm bg-surface-2 text-foreground',
+          )}
+        >
+          {streaming ? (
+            <TypingText text={msg.content} onDone={onStreamDone} />
+          ) : (
+            <span dangerouslySetInnerHTML={{ __html: renderMd(msg.content) }} />
+          )}
+        </div>
+
+        {/* Follow-up quick replies */}
+        {msg.type === 'question' && showChips && msg.options?.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {msg.options.map((opt) => (
+              <button
+                key={opt.label}
+                onClick={() => onAnswer(opt)}
+                className="rounded-full border border-primary/30 bg-surface px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         )}
-        dangerouslySetInnerHTML={{ __html: renderMarkdownLite(content) }}
-      />
+      </div>
+    </div>
+  )
+}
+
+function EmergencyBubble({ title, content }) {
+  return (
+    <div className="animate-fade-up rounded-2xl border border-danger/40 bg-danger/10 p-4">
+      <div className="flex items-start gap-3">
+        <ShieldAlert size={22} className="mt-0.5 shrink-0 text-danger" />
+        <div>
+          <p className="font-semibold text-danger">⚠ {title}</p>
+          <p className="mt-1 text-sm text-foreground">{content}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const REC_TONE = {
+  danger: 'border-danger/40 bg-danger/10 text-danger',
+  warning: 'border-warning/40 bg-warning/10 text-warning',
+  primary: 'border-primary/30 bg-primary-soft text-primary',
+}
+
+function Assessment({ data }) {
+  const { reported, predictions, redFlags, recommendation, apiOk } = data
+  return (
+    <div className="animate-fade-up space-y-4 rounded-2xl border border-border bg-background p-5">
+      <div className="flex items-center gap-2">
+        <ClipboardList size={18} className="text-primary" />
+        <h3 className="font-semibold text-foreground">Triage Summary</h3>
+      </div>
+
+      {/* Reported symptoms */}
+      <div>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Reported symptoms</p>
+        <div className="flex flex-wrap gap-1.5">
+          {reported.map((s) => (
+            <Badge key={s} tone="neutral">{titleCase(s)}</Badge>
+          ))}
+        </div>
+      </div>
+
+      {/* Red flags */}
+      {redFlags.length > 0 && (
+        <div className="flex items-start gap-2 rounded-xl bg-danger/10 p-3 text-sm">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-danger" />
+          <span className="text-foreground">
+            <span className="font-semibold text-danger">Red-flag symptoms:</span>{' '}
+            {redFlags.map(titleCase).join(', ')} — these can be serious and warrant prompt medical review.
+          </span>
+        </div>
+      )}
+
+      {/* Possible conditions (Requirement #4 + #10) */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Possible conditions</p>
+        {!apiOk ? (
+          <p className="text-sm text-muted">Couldn’t reach the prediction service. Please try again.</p>
+        ) : predictions.length === 0 ? (
+          <p className="text-sm text-muted">Not enough specific symptoms to suggest a likely condition.</p>
+        ) : (
+          <div className="space-y-3">
+            {predictions.map((p) => {
+              const b = band(p.confidence)
+              return (
+                <div key={p.disease} className="rounded-xl border border-border bg-surface p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted">Possible condition</p>
+                      <p className="font-semibold text-foreground">{p.disease}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-sm font-bold text-foreground">{Number(p.confidence).toFixed(1)}%</span>
+                      <Badge tone={b.tone}>{b.label}</Badge>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <ConfidenceBar value={Number(p.confidence)} showLabel={false} />
+                  </div>
+                  {p.explanation && (
+                    <p className="mt-2 text-xs text-muted">
+                      <span className="font-medium text-foreground">Why this may match: </span>
+                      {p.explanation}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Recommendation */}
+      <div className={cn('rounded-xl border p-3 text-sm', REC_TONE[recommendation.tone])}>
+        <p className="font-semibold">Recommendation</p>
+        <p className="mt-0.5 text-foreground">{recommendation.text}</p>
+      </div>
+
+      <p className="text-[11px] text-muted">
+        This is a possible-condition estimate from an educational model — not a diagnosis. Please confirm with a licensed clinician.
+      </p>
     </div>
   )
 }
@@ -241,19 +548,39 @@ function TypingBubble() {
         <Bot size={16} />
       </span>
       <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-surface-2 px-4 py-3.5">
-        <span className="typing-dot h-2 w-2 rounded-full bg-muted" style={{ animationDelay: '0ms' }} />
-        <span className="typing-dot h-2 w-2 rounded-full bg-muted" style={{ animationDelay: '200ms' }} />
-        <span className="typing-dot h-2 w-2 rounded-full bg-muted" style={{ animationDelay: '400ms' }} />
+        {[0, 200, 400].map((d) => (
+          <span key={d} className="typing-dot h-2 w-2 rounded-full bg-muted" style={{ animationDelay: `${d}ms` }} />
+        ))}
       </div>
     </div>
   )
 }
 
-// Minimal, safe-ish markdown: only **bold**. Escapes HTML first.
-function renderMarkdownLite(text) {
-  const esc = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  return esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+// ---------- streaming text (Requirement #7) ----------
+function TypingText({ text, onDone, speed = 12 }) {
+  const [n, setN] = useState(0)
+  const doneRef = useRef(onDone)
+  doneRef.current = onDone
+  useEffect(() => {
+    setN(0)
+    let i = 0
+    const id = setInterval(() => {
+      i += 1
+      setN(i)
+      if (i >= text.length) {
+        clearInterval(id)
+        doneRef.current?.()
+      }
+    }, speed)
+    return () => clearInterval(id)
+  }, [text, speed])
+  return <span dangerouslySetInnerHTML={{ __html: renderMd(text.slice(0, n)) }} />
+}
+
+// Minimal, safe markdown: escape, then **bold** and *italic*.
+function renderMd(text) {
+  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return esc
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
 }

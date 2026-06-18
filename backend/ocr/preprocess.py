@@ -1,15 +1,16 @@
-"""Engine-aware image preprocessing for prescription OCR.
+"""Image preprocessing for prescription OCR (OpenCV).
 
-Key insight: deep-learning recognizers (TrOCR, Google Vision, Gemini, GPT-4o)
-are trained on *natural* images. Hard binarization / adaptive thresholding helps
-classic Tesseract but actively HURTS these models. So we expose two modes:
+Full pipeline for messy mobile photos: document detection + perspective
+correction -> resize/super-resolution -> grayscale -> deskew -> rotation
+correction -> denoise -> brightness normalization -> CLAHE contrast -> sharpen.
 
-* ``prepare_for_deep_model`` -> deskew, denoise, contrast (CLAHE), upscale.
-  Keeps a natural grayscale/colour image. Use for Gemini/GPT-4o/Vision/TrOCR.
-* ``prepare_for_classic`` -> the above + adaptive threshold. Use for Tesseract.
+Two outputs:
+* ``prepare_for_deep_model`` -> natural grayscale (EasyOCR/Paddle/TrOCR/DocTR/
+  Vision/Gemini). Deep models are HURT by hard binarization.
+* ``prepare_for_classic`` -> adds adaptive thresholding for Tesseract.
 
-All functions are defensive: if OpenCV isn't available or a step fails, they
-degrade gracefully and return the best image they have.
+Every step is defensive: any failure degrades gracefully and returns the best
+image available (or the original path).
 """
 
 from __future__ import annotations
@@ -23,9 +24,6 @@ try:
 except Exception:  # pragma: no cover
     cv2 = None  # type: ignore
 
-
-# Target longer-edge size. Upscaling small/blurry scans is the single biggest
-# cheap win; downscaling huge photos keeps API payloads + latency sane.
 _MAX_EDGE = 2200
 _MIN_EDGE = 1000
 
@@ -35,6 +33,41 @@ def _read(image_path: str) -> "np.ndarray":
     if img is None:
         raise ValueError(f"Could not read image: {image_path}")
     return img
+
+
+# ---------- geometry: document detection + perspective correction ----------
+def _perspective_correct(img: "np.ndarray") -> "np.ndarray":
+    """Find the largest 4-point contour (the page) and flatten it."""
+    h, w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    edged = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 60, 180)
+    edged = cv2.dilate(edged, np.ones((3, 3), np.uint8), iterations=1)
+    cnts, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return img
+    biggest = max(cnts, key=cv2.contourArea)
+    if cv2.contourArea(biggest) < 0.25 * w * h:  # not a full page; skip
+        return img
+    peri = cv2.arcLength(biggest, True)
+    approx = cv2.approxPolyDP(biggest, 0.02 * peri, True)
+    if len(approx) != 4:
+        return img
+    pts = approx.reshape(4, 2).astype("float32")
+    s = pts.sum(axis=1)
+    diff = np.diff(pts, axis=1)
+    rect = np.array([
+        pts[np.argmin(s)], pts[np.argmin(diff)],
+        pts[np.argmax(s)], pts[np.argmax(diff)],
+    ], dtype="float32")
+    (tl, tr, br, bl) = rect
+    wA, wB = np.linalg.norm(br - bl), np.linalg.norm(tr - tl)
+    hA, hB = np.linalg.norm(tr - br), np.linalg.norm(tl - bl)
+    maxW, maxH = int(max(wA, wB)), int(max(hA, hB))
+    if maxW < 200 or maxH < 200:
+        return img
+    dst = np.array([[0, 0], [maxW - 1, 0], [maxW - 1, maxH - 1], [0, maxH - 1]], dtype="float32")
+    M = cv2.getPerspectiveTransform(rect, dst)
+    return cv2.warpPerspective(img, M, (maxW, maxH))
 
 
 def _resize_to_band(img: "np.ndarray") -> "np.ndarray":
@@ -51,12 +84,44 @@ def _resize_to_band(img: "np.ndarray") -> "np.ndarray":
     return img
 
 
-def _deskew(gray: "np.ndarray") -> "np.ndarray":
-    """Estimate small skew from text pixel orientation and rotate to correct it.
+def _super_resolve(img: "np.ndarray") -> "np.ndarray":
+    """Use EDSR/FSRCNN if a model file is present, else high-quality cubic 2x."""
+    h, w = img.shape[:2]
+    if max(h, w) >= _MIN_EDGE:
+        return img
+    model_dir = Path(__file__).resolve().parent / "sr_models"
+    for name, key, scale in [("FSRCNN_x2.pb", "fsrcnn", 2), ("EDSR_x2.pb", "edsr", 2)]:
+        mp = model_dir / name
+        if mp.exists() and hasattr(cv2, "dnn_superres"):
+            try:
+                sr = cv2.dnn_superres.DnnSuperResImpl_create()
+                sr.readModel(str(mp))
+                sr.setModel(key, scale)
+                return sr.upsample(img)
+            except Exception:  # noqa: BLE001
+                break
+    return cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
-    Handles the common case of a slightly tilted scan/photo. Large 90/180 deg
-    rotations are better left to the OCR engine (Vision/Gemini handle them).
-    """
+
+# ---------- rotation + skew ----------
+def _orientation_correct(gray: "np.ndarray") -> "np.ndarray":
+    """Coarse 0/90/180/270 correction using Tesseract OSD if available."""
+    try:
+        import pytesseract  # type: ignore
+
+        osd = pytesseract.image_to_osd(gray)
+        rot = int(next(l for l in osd.splitlines() if "Rotate:" in l).split(":")[1])
+        if rot:
+            k = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180,
+                 270: cv2.ROTATE_90_COUNTERCLOCKWISE}.get(rot)
+            if k is not None:
+                return cv2.rotate(gray, k)
+    except Exception:  # noqa: BLE001
+        pass
+    return gray
+
+
+def _deskew(gray: "np.ndarray") -> "np.ndarray":
     inv = cv2.bitwise_not(gray)
     thr = cv2.threshold(inv, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
     coords = np.column_stack(np.where(thr > 0))
@@ -65,40 +130,45 @@ def _deskew(gray: "np.ndarray") -> "np.ndarray":
     angle = cv2.minAreaRect(coords)[-1]
     if angle < -45:
         angle = 90 + angle
-    # Only correct meaningful-but-small tilts; ignore noise and big rotations.
     if abs(angle) < 0.5 or abs(angle) > 20:
         return gray
     h, w = gray.shape[:2]
-    m = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
-    return cv2.warpAffine(
-        gray, m, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
-    )
+    M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+    return cv2.warpAffine(gray, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+
+# ---------- photometric: denoise, brightness, contrast, sharpen ----------
+def _normalize_brightness(gray: "np.ndarray") -> "np.ndarray":
+    """Flatten uneven lighting / shadows by dividing out the background."""
+    bg = cv2.medianBlur(gray, 41)
+    norm = cv2.divide(gray, bg, scale=255)
+    return norm
 
 
 def _enhance(gray: "np.ndarray") -> "np.ndarray":
-    # Non-local-means denoise (preserves stroke edges better than blur).
-    den = cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7,
-                                   searchWindowSize=21)
-    # CLAHE: local contrast boost so faint pen strokes pop without blowing out.
+    den = cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
+    den = _normalize_brightness(den)
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-    return clahe.apply(den)
+    out = clahe.apply(den)
+    # Unsharp mask for crisper strokes.
+    blur = cv2.GaussianBlur(out, (0, 0), 3)
+    out = cv2.addWeighted(out, 1.5, blur, -0.5, 0)
+    return out
 
 
 def _common(image_path: str) -> "np.ndarray":
     img = _read(image_path)
+    img = _perspective_correct(img)
+    img = _super_resolve(img)
     img = _resize_to_band(img)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = _orientation_correct(gray)
     gray = _deskew(gray)
     gray = _enhance(gray)
     return gray
 
 
 def prepare_for_deep_model(image_path: str, out_dir: str) -> str:
-    """Preprocess for deep recognizers. Returns path to the processed image.
-
-    If OpenCV is missing or anything fails, returns the original path so the
-    pipeline can still run.
-    """
     if cv2 is None:
         return image_path
     try:
@@ -111,14 +181,12 @@ def prepare_for_deep_model(image_path: str, out_dir: str) -> str:
 
 
 def prepare_for_classic(image_path: str, out_dir: str) -> str:
-    """Preprocess for classic OCR (Tesseract): adds adaptive thresholding."""
     if cv2 is None:
         return image_path
     try:
         gray = _common(image_path)
         thr = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 31, 11,
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 11
         )
         out = str(Path(out_dir) / (Path(image_path).stem + "_classic.png"))
         cv2.imwrite(out, thr)

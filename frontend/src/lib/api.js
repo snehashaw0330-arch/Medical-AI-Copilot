@@ -7,9 +7,14 @@ import axios from 'axios'
  * Base URL: set VITE_API_URL in a .env file for production; defaults to the
  * local FastAPI server (which has permissive CORS in dev).
  */
+// Default timeout is for FAST endpoints (predict, lookups). OCR is slow and
+// gets its own long timeout per-request — see OCR_TIMEOUT below.
+const DEFAULT_TIMEOUT = 30_000 // 30s
+export const OCR_TIMEOUT = 300_000 // 5 min — local handwriting OCR can be slow
+
 const API = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000',
-  timeout: 60000,
+  timeout: DEFAULT_TIMEOUT,
 })
 
 // ---------------- Disease prediction ----------------
@@ -34,12 +39,16 @@ export async function suggestSymptoms(q, limit = 8) {
 }
 
 // ---------------- Prescription OCR ----------------
-export async function extractPrescription(file, { provider, onProgress } = {}) {
+// Slow by nature. Uses OCR_TIMEOUT (5 min) and accepts an AbortController
+// `signal` so the UI can cancel on user request (and ONLY on user request).
+export async function extractPrescription(file, { provider, onProgress, signal } = {}) {
   const form = new FormData()
   form.append('file', file)
   const { data } = await API.post('/ocr/extract-prescription', form, {
     params: provider ? { provider } : undefined,
     headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: OCR_TIMEOUT,
+    signal,
     onUploadProgress: (e) => {
       if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
     },

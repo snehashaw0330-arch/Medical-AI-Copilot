@@ -24,6 +24,16 @@ pytesseract>=0.3.10            # fallback; also install the Tesseract binary:
                                #   macOS:   brew install tesseract
                                #   Linux:   apt-get install tesseract-ocr
 
+# --- Optional extra ensemble engines (more engines = better selection) ---
+# paddleocr>=2.7 + paddlepaddle>=2.6   # strong detector for photos
+# python-doctr[torch]>=0.8             # document OCR with word confidences
+# transformers>=4.40 + torch>=2.2      # TrOCR handwriting (GPU recommended)
+
+# --- Optional dataset tooling (backend/ocr/datasets.py) ---
+# datasets>=2.18               # IAM / HuggingFace downloads
+# kaggle>=1.6                  # Kaggle prescription datasets (needs API token)
+# roboflow>=1.1                # Roboflow datasets (needs ROBOFLOW_API_KEY)
+
 # --- Optional cloud OCR providers (install only if you set a key) ---
 # google-genai>=0.3            # Gemini   (set GEMINI_API_KEY)
 # openai>=1.30                 # GPT-4o   (set OPENAI_API_KEY)

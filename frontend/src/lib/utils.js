@@ -30,12 +30,23 @@ export function formatDate(iso) {
   }
 }
 
-/** Extract a friendly message from an axios error. */
+/** True when the request was aborted by the user (AbortController). */
+export function isCanceled(err) {
+  return err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError'
+}
+
+/** Extract a friendly, human message from an axios error. */
 export function errorMessage(err, fallback = 'Something went wrong') {
-  return (
-    err?.response?.data?.detail ||
-    err?.response?.data?.error ||
-    err?.message ||
-    fallback
-  )
+  // Prefer the backend's own message (FastAPI returns {detail: ...}).
+  const backend = err?.response?.data?.detail || err?.response?.data?.error
+  if (backend) return typeof backend === 'string' ? backend : JSON.stringify(backend)
+
+  if (isCanceled(err)) return 'Request canceled.'
+  if (err?.code === 'ECONNABORTED' || err?.code === 'ETIMEDOUT') {
+    return 'The analysis is taking longer than expected. Please try again, or use a smaller / clearer image.'
+  }
+  if (err?.code === 'ERR_NETWORK') {
+    return 'Cannot reach the server. Make sure the backend is running.'
+  }
+  return err?.message || fallback
 }

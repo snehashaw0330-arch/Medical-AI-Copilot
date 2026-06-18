@@ -1,0 +1,3 @@
+rx_00000.png	Cetirizine 10mg  0-0-1 x 1 week
+rx_00001.png	Omeprazole 20mg  1-0-1 x 5 days
+rx_00002.png	Paracetamol 650mg  TDS after food
