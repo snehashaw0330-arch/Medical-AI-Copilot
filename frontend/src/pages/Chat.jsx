@@ -11,12 +11,17 @@ import {
   ClipboardList,
   ShieldAlert,
   Activity,
+  Sparkles,
+  Quote,
+  Paperclip,
+  Pill,
+  ScanLine,
 } from 'lucide-react'
 import Button from '@/ui/Button'
 import Badge from '@/ui/Badge'
 import ConfidenceBar from '@/ui/ConfidenceBar'
-import { cn, titleCase } from '@/lib/utils'
-import { predictDisease } from '@/lib/api'
+import { cn, titleCase, confidenceColor, errorMessage } from '@/lib/utils'
+import { predictDisease, queryKnowledgeBase, analyzePrescriptionRag } from '@/lib/api'
 import { savePrediction } from '@/lib/storage'
 import {
   detectEmergency,
@@ -59,6 +64,13 @@ function load() {
 
 const norm = (s) => s.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
 
+// Route explicit medical-knowledge questions to the RAG knowledge base instead
+// of the symptom-triage flow. Kept deliberately conservative so symptom
+// descriptions still go to triage.
+const KNOWLEDGE_RE =
+  /\b(what is|what are|what'?s|tell me about|about|side[- ]?effects?|adverse|dosage|dose|dosing|how much|interactions?|contraindications?|can i take|is it safe|used? for|uses? of|indication|warnings?|precautions?|pregnan|breastfeed|lactation|storage|store|food)\b/i
+const isKnowledgeQuestion = (text) => KNOWLEDGE_RE.test(text)
+
 export default function Chat() {
   const [conversations, setConversations] = useState(load)
   const [activeId, setActiveId] = useState(conversations[0].id)
@@ -67,6 +79,7 @@ export default function Chat() {
   const [streamingId, setStreamingId] = useState(null)
   const [busy, setBusy] = useState(false)
   const scrollRef = useRef(null)
+  const rxRef = useRef(null)
 
   // Refs mirror state so async triage steps always read the latest value.
   const ref = useRef(conversations)
@@ -193,6 +206,49 @@ export default function Chat() {
     }
   }
 
+  // ---------- RAG knowledge answer ----------
+  async function botRag(question) {
+    setTyping(true)
+    try {
+      const res = await queryKnowledgeBase(question)
+      setTyping(false)
+      pushMsg({ id: uid(), role: 'assistant', type: 'rag', data: res })
+    } catch (err) {
+      setTyping(false)
+      pushMsg({
+        id: uid(),
+        role: 'assistant',
+        type: 'text',
+        content:
+          errorMessage(err, "I couldn't reach the knowledge base.") +
+          ' You can still ask me about your symptoms.',
+      })
+    }
+  }
+
+  // ---------- RAG prescription (OCR -> medicines -> retrieve info) ----------
+  async function botPrescription(file) {
+    if (busy) return
+    setBusy(true)
+    pushMsg({ id: uid(), role: 'user', type: 'text', content: `📎 Uploaded prescription: ${file.name}` })
+    setTyping(true)
+    try {
+      const res = await analyzePrescriptionRag(file)
+      setTyping(false)
+      pushMsg({ id: uid(), role: 'assistant', type: 'rx-rag', data: res })
+    } catch (err) {
+      setTyping(false)
+      pushMsg({
+        id: uid(),
+        role: 'assistant',
+        type: 'text',
+        content: errorMessage(err, 'I could not analyze that prescription image.'),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // Detect symptoms in text, record them, and queue their follow-ups.
   function ingest(text) {
     const found = detectSymptoms(text)
@@ -227,6 +283,16 @@ export default function Chat() {
         updateActive((c) => ({ ...c, tri: { ...c.tri, emergency: true } }))
         await botEmergency(emg)
       }
+
+      // Knowledge questions ("what is paracetamol", "side effects of…") are
+      // answered from the RAG knowledge base; symptom descriptions still flow
+      // into the existing triage engine untouched.
+      const found = detectSymptoms(content)
+      if (isKnowledgeQuestion(content) && found.length === 0) {
+        await botRag(content)
+        return
+      }
+
       ingest(content)
       await botContinue()
     } finally {
@@ -362,6 +428,23 @@ export default function Chat() {
             </div>
           )}
           <div className="flex items-end gap-2 rounded-2xl border border-border bg-background p-2">
+            <input
+              ref={rxRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) botPrescription(f); e.target.value = '' }}
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => rxRef.current?.click()}
+              disabled={busy}
+              aria-label="Upload a prescription image"
+              title="Upload a prescription image"
+            >
+              <Paperclip size={16} />
+            </Button>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -372,7 +455,7 @@ export default function Chat() {
                 }
               }}
               rows={1}
-              placeholder="Describe your symptoms…"
+              placeholder="Ask about a medicine, describe symptoms, or attach a prescription…"
               className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-foreground outline-none placeholder:text-muted"
             />
             <Button size="icon" onClick={() => send()} disabled={!input.trim() || busy}>
@@ -380,7 +463,7 @@ export default function Chat() {
             </Button>
           </div>
           <p className="mt-2 text-center text-[11px] text-muted">
-            Triage assistant — general information only. Not a diagnosis. In an emergency, call your local emergency number.
+            Triage &amp; knowledge assistant — general information only. Not a diagnosis. In an emergency, call your local emergency number.
           </p>
         </div>
       </div>
@@ -394,6 +477,8 @@ export default function Chat() {
 function Message({ msg, streaming, onStreamDone, showChips, onAnswer }) {
   if (msg.type === 'emergency') return <EmergencyBubble title={msg.title} content={msg.content} />
   if (msg.type === 'assessment') return <Assessment data={msg.data} />
+  if (msg.type === 'rag') return <RagAnswer data={msg.data} />
+  if (msg.type === 'rx-rag') return <PrescriptionAnswer data={msg.data} />
 
   const isUser = msg.role === 'user'
   return (
@@ -537,6 +622,110 @@ function Assessment({ data }) {
       <p className="text-[11px] text-muted">
         This is a possible-condition estimate from an educational model — not a diagnosis. Please confirm with a licensed clinician.
       </p>
+    </div>
+  )
+}
+
+const pctOf = (v) => Math.round((v || 0) * 100)
+
+// RAG knowledge answer with retrieved documents, confidence and sources (Req 12).
+function RagAnswer({ data }) {
+  const conf = pctOf(data.confidence)
+  return (
+    <div className="flex animate-fade-up gap-3">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-accent text-white">
+        <Sparkles size={16} />
+      </span>
+      <div className="max-w-[88%] space-y-3 rounded-2xl rounded-tl-sm bg-surface-2 p-4">
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{data.answer}</p>
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          <Badge tone="neutral">via {data.provider}</Badge>
+          <span
+            className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+            style={{ color: confidenceColor(conf), backgroundColor: `${confidenceColor(conf)}1a` }}
+          >
+            {conf}% confidence
+          </span>
+          {data.chunks?.length > 0 && (
+            <Badge tone="neutral">{data.chunks.length} doc{data.chunks.length === 1 ? '' : 's'} retrieved</Badge>
+          )}
+        </div>
+
+        {data.sources?.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium text-muted">Sources:</span>
+            {data.sources.map((s) => (
+              <Badge key={s} tone="primary"><Quote size={11} /> {s}</Badge>
+            ))}
+          </div>
+        )}
+        {data.safety_note && <p className="text-[11px] text-muted">{data.safety_note}</p>}
+      </div>
+    </div>
+  )
+}
+
+// Prescription analysis: OCR-extracted medicines + retrieved drug info + interactions.
+function PrescriptionAnswer({ data }) {
+  const meds = data.info?.medicines ?? []
+  const interactions = data.info?.interactions
+  return (
+    <div className="flex animate-fade-up gap-3">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-accent text-white">
+        <ScanLine size={16} />
+      </span>
+      <div className="max-w-[90%] space-y-3 rounded-2xl rounded-tl-sm bg-surface-2 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-semibold text-foreground">Prescription analyzed</p>
+          {data.ocr_provider && <Badge tone="neutral">OCR: {data.ocr_provider}</Badge>}
+          <Badge tone="neutral">{pctOf(data.ocr_confidence)}% OCR confidence</Badge>
+        </div>
+
+        {data.extracted_medicines?.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {data.extracted_medicines.map((m, i) => (
+              <Badge key={i} tone="primary"><Pill size={11} /> {titleCase(m)}</Badge>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted">No medicines could be confidently extracted from the image.</p>
+        )}
+
+        {meds.map((m, i) => (
+          <div key={i} className="rounded-xl border border-border bg-surface p-3">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <Pill size={14} className="text-primary" /> {titleCase(m.name)}
+              <span className="ml-auto text-xs font-normal text-muted">{pctOf(m.confidence)}% match</span>
+            </p>
+            <div className="mt-2 grid gap-1.5">
+              {Object.entries(m.fields || {})
+                .filter(([, v]) => v)
+                .map(([k, v]) => (
+                  <p key={k} className="text-xs text-muted">
+                    <span className="font-medium text-foreground">{titleCase(k)}: </span>{v}
+                  </p>
+                ))}
+            </div>
+            {m.sources?.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {m.sources.map((s) => <Badge key={s} tone="neutral">{s}</Badge>)}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {interactions && (
+          <div className="rounded-xl border border-warning/40 bg-warning/10 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-warning">
+              <AlertTriangle size={15} /> Possible drug interactions
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-foreground">{interactions.answer}</p>
+          </div>
+        )}
+
+        {data.info?.safety_note && <p className="text-[11px] text-muted">{data.info.safety_note}</p>}
+      </div>
     </div>
   )
 }

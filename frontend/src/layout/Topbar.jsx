@@ -49,14 +49,6 @@ export default function Topbar({ onMenu }) {
         >
           {theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}
         </button>
-        <div className="ml-1 flex items-center gap-2 rounded-xl border border-border bg-surface px-2 py-1.5">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-primary to-accent text-sm font-bold text-white">
-            A
-          </span>
-          <span className="hidden text-sm font-medium text-foreground sm:block">
-            Dr. Morgan
-          </span>
-        </div>
       </div>
     </header>
   )

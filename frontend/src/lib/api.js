@@ -56,9 +56,92 @@ export async function extractPrescription(file, { provider, onProgress, signal }
   return data
 }
 
+// ---------------- Dataset evaluation ----------------
+// Batch OCR evaluation runs in the background on the server; the UI starts a
+// job, polls its status for live progress, and downloads the final report.
+export async function getDatasetInfo(dataset) {
+  const { data } = await API.get('/ocr/dataset-info', {
+    params: dataset ? { dataset } : undefined,
+  })
+  return data
+}
+
+export async function startDatasetEvaluation({ dataset, limit } = {}) {
+  const { data } = await API.post('/ocr/evaluate-dataset', null, {
+    params: { ...(dataset ? { dataset } : {}), ...(limit ? { limit } : {}) },
+  })
+  return data
+}
+
+export async function getDatasetEvaluationStatus(jobId) {
+  const { data } = await API.get(`/ocr/evaluate-dataset/status/${jobId}`)
+  return data
+}
+
+/** Absolute URL of the downloadable JSON report (used by an <a> / window.open). */
+export function datasetReportUrl(jobId) {
+  return `${API.defaults.baseURL}/ocr/evaluate-dataset/report/${jobId}`
+}
+
 // ---------------- Medicine info ----------------
 export async function getMedicineInfo(name) {
   const { data } = await API.get(`/medicine-info/${encodeURIComponent(name)}`)
+  return data
+}
+
+// ---------------- RAG / Knowledge Base ----------------
+// Retrieval-augmented Q&A over the medical knowledge base. Indexing/generation
+// can be slow, so these use a longer timeout than the default fast endpoints.
+const RAG_TIMEOUT = 120_000 // 2 min
+
+export async function getRagStatus() {
+  const { data } = await API.get('/rag/status')
+  return data
+}
+
+export async function rebuildRagIndex() {
+  const { data } = await API.post('/rag/index', null, { timeout: RAG_TIMEOUT })
+  return data
+}
+
+export async function queryKnowledgeBase(question, topK) {
+  const { data } = await API.post(
+    '/rag/query',
+    { question, top_k: topK ?? null },
+    { timeout: RAG_TIMEOUT },
+  )
+  return data
+}
+
+export async function getRagMedicineInfo(medicines) {
+  const { data } = await API.post(
+    '/rag/medicine-info',
+    { medicines },
+    { timeout: RAG_TIMEOUT },
+  )
+  return data
+}
+
+export async function uploadKnowledgeDoc(file, { reindex = true } = {}) {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await API.post('/rag/upload', form, {
+    params: { reindex },
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: RAG_TIMEOUT,
+  })
+  return data
+}
+
+// OCR an uploaded prescription, then retrieve RAG info for every medicine found.
+export async function analyzePrescriptionRag(file, { signal } = {}) {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await API.post('/rag/prescription', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: OCR_TIMEOUT,
+    signal,
+  })
   return data
 }
 

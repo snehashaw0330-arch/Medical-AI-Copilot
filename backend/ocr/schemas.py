@@ -63,3 +63,60 @@ class PrescriptionResult(BaseModel):
     warnings: list[str] = []
     engines: dict[str, Any] = {}         # per-engine score table (debug)
     best_engine: str | None = None
+
+
+# ==========================================================================
+# Dataset evaluation (batch OCR over a folder of prescription images)
+# ==========================================================================
+class DatasetImageResult(BaseModel):
+    """Outcome of running one dataset image through the OCR pipeline."""
+
+    image: str                           # file name
+    status: str                          # "processed" | "failed"
+    best_engine: str | None = None
+    overall_confidence: float = 0.0      # 0..1
+    medicine_count: int = 0              # confidently matched medicines
+    medicines: list[str] = []            # matched medicine names
+    raw_text: str = ""
+    processing_time: float = 0.0         # seconds
+    result_json: str | None = None       # relative path to saved per-image JSON
+    error: str | None = None             # populated when status == "failed"
+
+
+class DatasetEvaluationMetrics(BaseModel):
+    """Aggregate metrics across the whole dataset run."""
+
+    total_images: int = 0
+    processed_images: int = 0
+    failed_images: int = 0
+    average_confidence: float = 0.0      # 0..1, over processed images
+    # Fraction of processed images from which >=1 medicine was confidently
+    # extracted. (This dataset has no transcription ground truth, so accuracy
+    # is reported as the confident-extraction rate — documented, not inflated.)
+    medicine_extraction_accuracy: float = 0.0   # 0..1
+    total_medicines_extracted: int = 0
+    average_processing_time: float = 0.0        # seconds per image
+
+
+class DatasetEvaluationReport(BaseModel):
+    """Full evaluation report: metrics + per-image breakdown."""
+
+    dataset: str                         # dataset directory that was evaluated
+    generated_at: str                    # ISO timestamp
+    metrics: DatasetEvaluationMetrics = DatasetEvaluationMetrics()
+    results: list[DatasetImageResult] = []
+
+
+class EvaluationJobStatus(BaseModel):
+    """Live status payload returned while/after an evaluation job runs."""
+
+    job_id: str
+    status: str                          # "running" | "completed" | "failed"
+    total: int = 0
+    processed: int = 0
+    failed: int = 0
+    current_image: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    report: DatasetEvaluationReport | None = None   # present once completed

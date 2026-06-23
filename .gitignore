@@ -12,4 +12,10 @@ processed-images/
 prescription-ocr/raw-images/
 prescription-ocr/uploads/
 
+# Generated OCR dataset-evaluation output (per-image JSON + processed images + reports)
+backend/ocr/results/
+
+# Generated RAG vector index (rebuilt from backend/rag/documents/)
+backend/rag/vector_store/
+
 *.zip

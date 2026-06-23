@@ -48,9 +48,9 @@ export function clearHistory() {
 }
 
 const DEFAULT_PROFILE = {
-  name: 'Dr. Alex Morgan',
-  email: 'alex.morgan@medisense.health',
-  role: 'General Physician',
+  name: '',
+  email: '',
+  role: '',
 }
 export const getProfile = () => read(KEYS.profile, DEFAULT_PROFILE)
 export const setProfile = (p) => write(KEYS.profile, p)

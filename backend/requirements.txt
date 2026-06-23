@@ -38,3 +38,20 @@ pytesseract>=0.3.10            # fallback; also install the Tesseract binary:
 # google-genai>=0.3            # Gemini   (set GEMINI_API_KEY)
 # openai>=1.30                 # GPT-4o   (set OPENAI_API_KEY)
 # google-cloud-vision>=3.7     # Vision   (set GOOGLE_APPLICATION_CREDENTIALS)
+
+# =====================================================================
+# RAG (Retrieval-Augmented Generation) — backend/rag/
+# Required for the Knowledge Base + RAG-powered AI Assistant.
+# =====================================================================
+sentence-transformers>=2.6     # all-MiniLM-L6-v2 embeddings (reuses torch)
+chromadb>=0.5                  # persistent vector database (preferred backend)
+pypdf>=4.2                     # PDF text extraction for indexing
+
+# --- Optional RAG vector backend alternative ---
+# faiss-cpu>=1.8               # FAISS store (register a VectorStore subclass)
+
+# --- Optional RAG generation LLMs (offline extractive works without any) ---
+# openai>=1.30                 # set OPENAI_API_KEY + RAG_LLM_PROVIDER=openai (or auto)
+# google-genai>=0.3            # set GEMINI_API_KEY + RAG_LLM_PROVIDER=gemini (or auto)
+#   Local models (e.g. Llama 3 via Ollama / an OpenAI-compatible endpoint) can be
+#   added by extending backend/rag/rag_service.py:generate().

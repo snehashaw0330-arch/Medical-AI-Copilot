@@ -101,11 +101,16 @@ def _recognize(image_path: str, provider_name: str | None):
     return raw, table, best.engine
 
 
-def run_pipeline(image_path: str, provider_name: str | None = None) -> PrescriptionResult:
-    # 1. Preprocess.
+def run_pipeline(
+    image_path: str,
+    provider_name: str | None = None,
+    preprocess: bool = True,
+) -> PrescriptionResult:
+    # 1. Preprocess. Callers that have already cleaned the image (e.g. the
+    #    dataset evaluator) pass ``preprocess=False`` to avoid doing it twice.
     processed = (
         prepare_for_deep_model(image_path, settings.UPLOAD_DIR)
-        if settings.ENABLE_PREPROCESSING
+        if preprocess and settings.ENABLE_PREPROCESSING
         else image_path
     )
 
