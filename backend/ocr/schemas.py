@@ -66,6 +66,37 @@ class PrescriptionResult(BaseModel):
 
 
 # ==========================================================================
+# Image quality assessment (runs before OCR)
+# ==========================================================================
+class ImageQualityMetrics(BaseModel):
+    """Raw, per-metric measurements computed with OpenCV."""
+
+    blur_score: float = 0.0        # variance of the Laplacian (higher = sharper)
+    brightness: float = 0.0        # mean luminance, 0..255
+    contrast: float = 0.0          # std dev of luminance
+    sharpness: float = 0.0         # Tenengrad (mean squared Sobel gradient)
+    noise_level: float = 0.0       # estimated noise sigma (lower = cleaner)
+    width: int = 0
+    height: int = 0
+    megapixels: float = 0.0
+    rotation_angle: float = 0.0    # dominant page rotation, degrees
+    skew_angle: float = 0.0        # text-baseline skew, degrees
+
+
+class ImageQualityReport(BaseModel):
+    """Full quality report returned by ``/ocr/image-quality`` (frontend contract)."""
+
+    overall_score: float = 0.0     # 0..100
+    rating: str = "Unknown"        # Excellent | Good | Fair | Poor | Unknown
+    passed: bool = True            # overall_score >= threshold
+    threshold: float = 60.0        # warn the user below this
+    metrics: ImageQualityMetrics = ImageQualityMetrics()
+    subscores: dict[str, float] = {}   # per-metric 0..100 sub-scores
+    recommendations: list[str] = []    # actionable user guidance
+    warnings: list[str] = []
+
+
+# ==========================================================================
 # Dataset evaluation (batch OCR over a folder of prescription images)
 # ==========================================================================
 class DatasetImageResult(BaseModel):

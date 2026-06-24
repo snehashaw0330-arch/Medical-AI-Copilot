@@ -12,9 +12,14 @@ from fastapi.responses import FileResponse
 from backend.config import settings
 from backend.ocr import evaluation
 from backend.ocr.dataset_loader import count_images
+from backend.ocr.image_quality import assess_image_quality
 from backend.ocr.pipeline import run_pipeline
 from backend.ocr.providers.factory import resolve_provider_name
-from backend.ocr.schemas import EvaluationJobStatus, PrescriptionResult
+from backend.ocr.schemas import (
+    EvaluationJobStatus,
+    ImageQualityReport,
+    PrescriptionResult,
+)
 
 router = APIRouter(prefix="/ocr", tags=["prescription-ocr"])
 
@@ -32,6 +37,43 @@ def ocr_health() -> dict:
         "preprocessing": settings.ENABLE_PREPROCESSING,
         "match_threshold": settings.MEDICINE_MATCH_THRESHOLD,
     }
+
+
+@router.post("/image-quality", response_model=ImageQualityReport)
+async def image_quality(file: UploadFile = File(...)) -> ImageQualityReport:
+    """Assess prescription-photo quality *before* OCR.
+
+    Returns a 0..100 overall score, per-metric measurements (blur, brightness,
+    contrast, sharpness, noise, resolution, rotation, skew) and actionable
+    recommendations. ``passed`` is False when the score is below the warn
+    threshold so the UI can prompt the user to recapture before OCR runs.
+    """
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in _ALLOWED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{suffix}'. Allowed: {sorted(_ALLOWED)}",
+        )
+
+    dest = Path(settings.UPLOAD_DIR) / f"{uuid.uuid4().hex}{suffix}"
+    try:
+        with open(dest, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    finally:
+        await file.close()
+
+    try:
+        report = assess_image_quality(str(dest))
+        return ImageQualityReport(**report.__dict__)
+    except ValueError as exc:
+        # Unreadable / corrupt image -> actionable 400.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500, detail=f"Image quality assessment failed: {exc}"
+        ) from exc
+    finally:
+        dest.unlink(missing_ok=True)  # don't retain medical images on disk
 
 
 @router.post("/extract-prescription", response_model=PrescriptionResult)

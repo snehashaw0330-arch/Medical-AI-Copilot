@@ -26,7 +26,8 @@ import Button from '@/ui/Button'
 import Badge from '@/ui/Badge'
 import Accordion from '@/ui/Accordion'
 import EmptyState from '@/ui/EmptyState'
-import { extractPrescription } from '@/lib/api'
+import QualityReport from '@/ui/QualityReport'
+import { extractPrescription, assessImageQuality } from '@/lib/api'
 import { saveReport } from '@/lib/storage'
 import { errorMessage, isCanceled, titleCase, confidenceColor } from '@/lib/utils'
 
@@ -307,6 +308,9 @@ export default function PrescriptionOCR() {
   const [dragOver, setDragOver] = useState(false)
   const [progress, setProgress] = useState(0)
   const [processing, setProcessing] = useState(false)
+  const [assessing, setAssessing] = useState(false)
+  const [quality, setQuality] = useState(null)     // image-quality report
+  const [qualityGate, setQualityGate] = useState(false)  // low quality, awaiting user
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [meds, setMeds] = useState([])          // editable copy
@@ -337,13 +341,19 @@ export default function PrescriptionOCR() {
     if (!f) return
     if (!f.type.startsWith('image/')) return toast.error('Please choose an image file')
     setFile(f); setPreview(URL.createObjectURL(f)); setResult(null); setError(null)
+    setQuality(null); setQualityGate(false)
     try { setImageDataUrl(await readAsDataUrl(f)) } catch { setImageDataUrl(null) }
   }
   const onDrop = (e) => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files?.[0]) }
-  const reset = () => { setFile(null); setPreview(null); setImageDataUrl(null); setResult(null); setError(null); setProgress(0) }
+  const reset = () => {
+    setFile(null); setPreview(null); setImageDataUrl(null); setResult(null); setError(null)
+    setProgress(0); setQuality(null); setQualityGate(false)
+  }
 
-  const run = async () => {
+  // Run the actual OCR pipeline.
+  const runOcr = async () => {
     if (!file) return
+    setQualityGate(false)
     const controller = new AbortController()
     abortRef.current = controller
     setProcessing(true); setError(null); setResult(null); setProgress(0)
@@ -363,6 +373,31 @@ export default function PrescriptionOCR() {
       setProcessing(false)
       abortRef.current = null
     }
+  }
+
+  // Entry point from the "Analyze" button: assess quality first, then either
+  // proceed to OCR (good image) or gate on user confirmation (low quality).
+  const run = async () => {
+    if (!file) return
+    setError(null); setResult(null); setQuality(null); setQualityGate(false)
+    setAssessing(true)
+    let report = null
+    try {
+      report = await assessImageQuality(file)
+      setQuality(report)
+    } catch (err) {
+      // Quality check is best-effort — never block OCR if it fails.
+      if (isCanceled(err)) { setAssessing(false); return }
+    } finally {
+      setAssessing(false)
+    }
+    // Warn (and wait) only when we got a report saying quality is too low.
+    if (report && report.passed === false) {
+      setQualityGate(true)
+      toast.error(`Low image quality (${Math.round(report.overall_score)}%). Please review before continuing.`)
+      return
+    }
+    await runOcr()
   }
 
   const cancel = () => abortRef.current?.abort()
@@ -421,7 +456,9 @@ export default function PrescriptionOCR() {
           <input ref={inputRef} type="file" accept="image/*" hidden onChange={(e) => pickFile(e.target.files?.[0])} />
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => pickFile(e.target.files?.[0])} />
           <div className="mt-4 flex gap-2">
-            <Button className="flex-1" onClick={run} loading={processing} disabled={!file}><ScanLine size={16} /> Analyze</Button>
+            <Button className="flex-1" onClick={run} loading={processing || assessing} disabled={!file}>
+              <ScanLine size={16} /> {assessing ? 'Checking quality…' : 'Analyze'}
+            </Button>
             <Button variant="secondary" onClick={() => cameraRef.current?.click()} aria-label="Use camera"><Camera size={16} /></Button>
           </div>
           <p className="mt-3 text-xs text-muted">For best results: good lighting, a flat page, and the whole prescription in frame.</p>
@@ -430,6 +467,33 @@ export default function PrescriptionOCR() {
 
       {/* Results */}
       <div className="space-y-5 lg:col-span-3">
+        {assessing && (
+          <Card className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+            <Loader2 size={28} className="animate-spin text-primary" />
+            <p className="font-medium text-foreground">Assessing image quality…</p>
+            <p className="text-sm text-muted">Checking blur, lighting, contrast, resolution and orientation.</p>
+          </Card>
+        )}
+
+        {/* Image quality report (shown after assessment, persists through OCR). */}
+        {!assessing && quality && <QualityReport report={quality} />}
+
+        {/* Low-quality gate: let the user recapture or proceed anyway. */}
+        {!assessing && !processing && qualityGate && (
+          <Card className="border-warning/40 bg-warning/5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-foreground">
+                This image scored below {Math.round(quality?.threshold ?? 60)}%. For the best results, retake the photo
+                using the tips above — or continue if you’re sure.
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <Button variant="secondary" size="sm" onClick={reset}><RotateCcw size={15} /> Retake</Button>
+                <Button size="sm" onClick={runOcr}><ScanLine size={15} /> Run OCR anyway</Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
         {processing && (
           <Card className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <Loader2 size={30} className="animate-spin text-primary" />
@@ -454,7 +518,7 @@ export default function PrescriptionOCR() {
           </Card>
         )}
 
-        {!processing && !error && !result && (
+        {!processing && !assessing && !error && !result && !quality && (
           <EmptyState
             icon={Pill}
             title="Your medicines will appear here"

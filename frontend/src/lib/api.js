@@ -56,6 +56,20 @@ export async function extractPrescription(file, { provider, onProgress, signal }
   return data
 }
 
+// ---------------- Image quality assessment ----------------
+// Fast OpenCV analysis that runs BEFORE OCR so the user can fix a bad photo.
+// Returns { overall_score, rating, passed, threshold, metrics, subscores,
+// recommendations, warnings }.
+export async function assessImageQuality(file, { signal } = {}) {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await API.post('/ocr/image-quality', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    signal,
+  })
+  return data
+}
+
 // ---------------- Dataset evaluation ----------------
 // Batch OCR evaluation runs in the background on the server; the UI starts a
 // job, polls its status for live progress, and downloads the final report.
