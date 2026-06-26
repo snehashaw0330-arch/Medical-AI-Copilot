@@ -18,4 +18,8 @@ backend/ocr/results/
 # Generated RAG vector index (rebuilt from backend/rag/documents/)
 backend/rag/vector_store/
 
+# OCR History store — local SQLite DB + retained prescription images
+backend/history/*.db
+backend/history/images/
+
 *.zip

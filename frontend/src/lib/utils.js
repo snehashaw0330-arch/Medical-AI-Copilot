@@ -19,6 +19,12 @@ export function titleCase(str = '') {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+/** Convert a 0..1 confidence to a rounded 0..100 percentage. */
+export const pct = (v) => Math.round((v || 0) * 100)
+
+/** Human-readable frequency for a medicine row (expanded > raw > none). */
+export const freqText = (m) => m.frequency_expanded || titleCase(m.frequency || '') || null
+
 export function formatDate(iso) {
   try {
     return new Date(iso).toLocaleString(undefined, {

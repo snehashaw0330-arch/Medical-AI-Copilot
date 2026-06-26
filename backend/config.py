@@ -57,6 +57,20 @@ class Settings:
     )
     UPLOAD_DIR: str = _path(os.getenv("UPLOAD_DIR", "prescription-ocr/uploads"))
 
+    # --- OCR history (persistence) ----------------------------------------
+    # Async SQLAlchemy URL. Defaults to a local SQLite file; point DATABASE_URL
+    # at PostgreSQL in production, e.g.
+    #   postgresql+asyncpg://user:pass@host:5432/medisense
+    # (no code changes required — only this env var and the asyncpg driver).
+    HISTORY_DB_URL: str = os.getenv(
+        "DATABASE_URL",
+        f"sqlite+aiosqlite:///{_path('backend/history/history.db')}",
+    )
+    # Where analyzed prescription images are retained for the history detail view.
+    HISTORY_IMAGE_DIR: str = _path(
+        os.getenv("HISTORY_IMAGE_DIR", "backend/history/images")
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(
@@ -72,5 +86,6 @@ class Settings:
 
 settings = Settings()
 
-# Make sure the upload directory exists at import time.
+# Make sure the storage directories exist at import time.
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+Path(settings.HISTORY_IMAGE_DIR).mkdir(parents=True, exist_ok=True)

@@ -7,12 +7,14 @@ import {
   User,
   Database,
   BookOpen,
+  History,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/predict', label: 'Disease Prediction', icon: Stethoscope },
   { to: '/ocr', label: 'Prescription OCR', icon: ScanLine },
+  { to: '/history', label: 'Prescription History', icon: History },
   { to: '/dataset', label: 'Dataset Evaluation', icon: Database },
   { to: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
   { to: '/medicine', label: 'Medicine Search', icon: Pill },

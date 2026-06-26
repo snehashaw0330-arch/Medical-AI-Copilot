@@ -12,6 +12,13 @@ rapidfuzz>=3.6                  # fuzzy medicine matching
 jellyfish>=1.0                 # phonetic (metaphone) matching  [optional but recommended]
 python-dotenv>=1.0             # optional: load .env
 
+# Persistence — OCR history (backend/history/)
+# SQLite (via aiosqlite) by default; for PostgreSQL set
+#   DATABASE_URL=postgresql+asyncpg://user:pass@host/db   and install asyncpg.
+sqlalchemy[asyncio]>=2.0       # async ORM (SQLite now, PostgreSQL later)
+aiosqlite>=0.19                # async SQLite driver
+# asyncpg>=0.29                # uncomment for PostgreSQL
+
 # Image preprocessing
 opencv-python-headless>=4.9
 numpy>=1.26

@@ -3,6 +3,7 @@ import AppLayout from './layout/AppLayout'
 import Dashboard from './pages/Dashboard'
 import DiseasePrediction from './pages/DiseasePrediction'
 import PrescriptionOCR from './pages/PrescriptionOCR'
+import PrescriptionHistory from './pages/PrescriptionHistory'
 import DatasetEvaluation from './pages/DatasetEvaluation'
 import KnowledgeBase from './pages/KnowledgeBase'
 import MedicineSearch from './pages/MedicineSearch'
@@ -17,6 +18,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="predict" element={<DiseasePrediction />} />
         <Route path="ocr" element={<PrescriptionOCR />} />
+        <Route path="history" element={<PrescriptionHistory />} />
         <Route path="dataset" element={<DatasetEvaluation />} />
         <Route path="knowledge" element={<KnowledgeBase />} />
         <Route path="medicine" element={<MedicineSearch />} />

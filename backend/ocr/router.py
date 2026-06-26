@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from backend.config import settings
+from backend.history import save_ocr_record
 from backend.ocr import evaluation
 from backend.ocr.dataset_loader import count_images
 from backend.ocr.image_quality import assess_image_quality
@@ -99,12 +101,30 @@ async def extract_prescription(
     finally:
         await file.close()
 
+    started = time.perf_counter()
+
+    async def _record(*, result=None, error=None) -> None:
+        # Persist every analysis (success or failure) to the OCR history store.
+        # Best-effort by contract — save_ocr_record never raises — so history
+        # can never break the OCR response.
+        await save_ocr_record(
+            str(dest),
+            file.filename,
+            result=result,
+            processing_time=time.perf_counter() - started,
+            error=error,
+        )
+
     try:
-        return run_pipeline(str(dest), provider_name=provider)
+        result = run_pipeline(str(dest), provider_name=provider)
+        await _record(result=result)
+        return result
     except RuntimeError as exc:
         # Misconfiguration (missing key / SDK) -> actionable 503.
+        await _record(error=str(exc))
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
+        await _record(error=str(exc))
         raise HTTPException(status_code=500, detail=f"OCR failed: {exc}") from exc
     finally:
         dest.unlink(missing_ok=True)  # don't retain medical images on disk
