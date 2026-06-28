@@ -71,6 +71,38 @@ class Settings:
         os.getenv("HISTORY_IMAGE_DIR", "backend/history/images")
     )
 
+    # --- Drug interaction analysis (backend/drug_interactions/) ------------
+    # Knowledge source for drug–drug interactions and per-drug warnings. The
+    # loader infers the backend from the file extension (.json / .csv / .db) so
+    # the same setting drives CSV, JSON or SQLite without code changes. Point at
+    # a remote source by setting INTERACTIONS_SOURCE (see service.build_source).
+    INTERACTIONS_DATASET: str = _path(
+        os.getenv("INTERACTIONS_DATASET", "datasets/drug_interactions/interactions.json")
+    )
+    # Optional explicit backend override: "json" | "csv" | "sqlite" | "openfda"
+    # | "rxnorm" | "drugbank". "auto" (default) infers from the dataset path.
+    INTERACTIONS_SOURCE: str = os.getenv("INTERACTIONS_SOURCE", "auto")
+    # Persistent history of interaction analyses. Same async URL contract as the
+    # OCR history store — defaults to a local SQLite file; set DATABASE_URL or
+    # INTERACTIONS_DB_URL to PostgreSQL in production with no code changes.
+    INTERACTIONS_DB_URL: str = os.getenv(
+        "INTERACTIONS_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/drug_interactions/interactions.db')}",
+        ),
+    )
+    # Fuzzy-match floor (0..100) for resolving an OCR'd medicine name to a known
+    # drug in the dataset. Below this we treat the drug as "unknown" (no false
+    # interactions are fabricated).
+    INTERACTION_MATCH_THRESHOLD: float = float(
+        os.getenv("INTERACTION_MATCH_THRESHOLD", "82")
+    )
+    # Enrich interaction reports with RAG knowledge-base context when available.
+    INTERACTIONS_USE_RAG: bool = (
+        os.getenv("INTERACTIONS_USE_RAG", "true").lower() == "true"
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

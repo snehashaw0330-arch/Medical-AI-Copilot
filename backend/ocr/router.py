@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import time
 import uuid
@@ -23,9 +24,31 @@ from backend.ocr.schemas import (
     PrescriptionResult,
 )
 
+logger = logging.getLogger("ocr")
+
 router = APIRouter(prefix="/ocr", tags=["prescription-ocr"])
 
 _ALLOWED = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
+
+
+async def _attach_interactions(result: PrescriptionResult) -> None:
+    """Auto-run drug-interaction analysis when >=2 medicines were detected.
+
+    Best-effort and non-fatal by contract: any failure (missing dataset, etc.)
+    is logged and swallowed so the OCR response is never blocked or broken. The
+    analysis is *not* persisted to interaction history here — it travels inline
+    with the OCR result and is already retained in the OCR history record.
+    """
+    try:
+        names = [m.name for m in result.medicines if m.name]
+        if len(names) < 2:
+            return
+        from backend.drug_interactions import analyze_medicines
+
+        report = await analyze_medicines(names, include_rag=True, persist=True)
+        result.drug_interactions = report.model_dump(mode="json")
+    except Exception:  # noqa: BLE001 — interaction analysis must never break OCR
+        logger.exception("Auto drug-interaction analysis failed (OCR unaffected)")
 
 
 @router.get("/health")
@@ -117,6 +140,9 @@ async def extract_prescription(
 
     try:
         result = run_pipeline(str(dest), provider_name=provider)
+        # Automatically analyse drug interactions when multiple medicines are
+        # detected, before persisting so the OCR history captures the report too.
+        await _attach_interactions(result)
         await _record(result=result)
         return result
     except RuntimeError as exc:

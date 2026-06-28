@@ -20,6 +20,7 @@ import {
   Check,
   Trash2,
   UserRound,
+  RefreshCw,
 } from 'lucide-react'
 import Card, { CardHeader } from '@/ui/Card'
 import Button from '@/ui/Button'
@@ -27,7 +28,8 @@ import Badge from '@/ui/Badge'
 import Accordion from '@/ui/Accordion'
 import EmptyState from '@/ui/EmptyState'
 import QualityReport from '@/ui/QualityReport'
-import { extractPrescription, assessImageQuality } from '@/lib/api'
+import DrugInteractionReport from '@/ui/DrugInteractionReport'
+import { extractPrescription, assessImageQuality, checkInteractions } from '@/lib/api'
 import { saveReport } from '@/lib/storage'
 import { errorMessage, isCanceled, titleCase, confidenceColor, pct, freqText } from '@/lib/utils'
 import { generatePrescriptionPdf, readFileAsDataUrl, DISCLAIMER } from '@/lib/pdf'
@@ -225,6 +227,8 @@ export default function PrescriptionOCR() {
   const [meds, setMeds] = useState([])          // editable copy
   const [fields, setFields] = useState({})      // editable copy
   const [editing, setEditing] = useState(false)
+  const [interactions, setInteractions] = useState(null)  // drug interaction report
+  const [rechecking, setRechecking] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const inputRef = useRef(null)
   const cameraRef = useRef(null)
@@ -235,8 +239,28 @@ export default function PrescriptionOCR() {
       setMeds(result.medicines || [])
       setFields(result.fields || {})
       setEditing(false)
+      // The backend auto-runs interaction analysis when >=2 medicines are found
+      // and ships it inline on the OCR result.
+      setInteractions(result.drug_interactions || null)
     }
   }, [result])
+
+  // Re-run interaction analysis against the (possibly edited) medicine list.
+  const recheckInteractions = async () => {
+    const names = meds.map((m) => m.name).filter(Boolean)
+    if (names.length < 2) {
+      toast.error('Add at least two recognised medicines to check interactions.')
+      return
+    }
+    setRechecking(true)
+    try {
+      setInteractions(await checkInteractions(names))
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not check drug interactions.'))
+    } finally {
+      setRechecking(false)
+    }
+  }
 
   // Elapsed-time counter so the user sees progress during slow OCR.
   useEffect(() => {
@@ -474,6 +498,26 @@ export default function PrescriptionOCR() {
                 {meds.map((m, i) => (
                   <MedicineCard key={i} med={m} editing={editing} onChange={(patch) => updateMed(i, patch)} onRemove={() => removeMed(i)} />
                 ))}
+              </div>
+            )}
+
+            {/* Drug interaction analysis (auto-run after OCR; re-runnable). */}
+            {(interactions || meds.filter((m) => m.name).length >= 2) && (
+              <div className="space-y-3">
+                {interactions ? (
+                  <DrugInteractionReport report={interactions} />
+                ) : (
+                  <EmptyState
+                    icon={ShieldCheck}
+                    title="Check drug interactions"
+                    description="Analyze the detected medicines for drug–drug interactions, severity and clinical warnings."
+                  />
+                )}
+                <div className="flex justify-end">
+                  <Button variant="secondary" size="sm" onClick={recheckInteractions} loading={rechecking}>
+                    <RefreshCw size={15} /> {interactions ? 'Re-check interactions' : 'Check interactions'}
+                  </Button>
+                </div>
               </div>
             )}
 

@@ -8,6 +8,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 - 📄 Handwritten Prescription OCR
 - 🔎 AI Image Quality Assessment (pre-OCR)
 - 🗂️ Prescription OCR History (persistent, searchable)
+- ⚠️ Drug Interaction Analysis (auto-run after OCR; severity, warnings & recommendations)
 - 💊 Medicine Information Search
 - 🤖 AI Medical Chat Assistant
 - 📊 Confidence-based Predictions
@@ -46,6 +47,7 @@ medical-ai-assistant/
 ├── backend/
 │   ├── ocr/            # OCR pipeline + image quality assessment
 │   ├── history/        # OCR History module (models, schemas, service, router)
+│   ├── drug_interactions/  # Drug Interaction Analysis (models, schemas, service, router, utils)
 │   ├── disease/        # Disease prediction
 │   ├── rag/            # Retrieval-augmented Q&A
 │   └── app.py          # FastAPI app — wires all routers
@@ -191,6 +193,96 @@ A new **Prescription History** sidebar page (`/history`):
 4. Opening a record fetches `GET /history/{id}`; PDF/JSON exports reuse that detail,
    and the image is loaded from `GET /history/{id}/image`.
 5. Deleting a record (or clearing all) removes the row **and** its retained image.
+
+---
+
+## ⚠️ Drug Interaction Analysis
+
+A production-ready module that checks a set of medicines for **drug–drug
+interactions** and **per-drug clinical warnings**. It runs **automatically after
+OCR** whenever two or more medicines are detected, and can be re-run on demand
+against an edited medicine list.
+
+### What it analyses
+
+- **Drug–drug interactions** with a five-level severity scale: `none`, `low`,
+  `moderate`, `high`, `critical`
+- Per interaction: **medicines involved**, **severity**, **clinical risk**,
+  **explanation**, **recommendation**, **clinical notes**
+- **Per-drug warnings:** contraindications, food, alcohol, pregnancy,
+  breastfeeding, kidney, liver and age restrictions
+- **Overall risk**, severity tally, de-duplicated recommendations
+- Optional **RAG enrichment** — extra context retrieved from the medical
+  knowledge base when available (degrades gracefully when it is not)
+
+### Backend module — `backend/drug_interactions/`
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Pydantic contract: `Severity` enum, `DrugDrugInteraction`, `MedicineWarnings`, `InteractionReport`, request + history models. |
+| `utils.py`   | Pure helpers — severity ranking, name normalisation (reuses the OCR normaliser), summary/recommendation composition. No I/O. |
+| `models.py`  | SQLAlchemy ORM model (`InteractionRecord`) with portable column types (SQLite **and** PostgreSQL). |
+| `service.py` | The brain: a **source-agnostic dataset loader** (`InteractionDataSource` → JSON / CSV / SQLite, plus a documented `RemoteAPIDataSource` stub for OpenFDA / RxNorm / DrugBank), fuzzy name resolution, the interaction + warning analysis engine, RAG enrichment, and async persistence. |
+| `router.py`  | Async FastAPI routes under `/interactions`, with logging + exception handling. |
+| `__init__.py`| Public surface: `router`, `analyze_medicines`, `get_service`. |
+
+### Dataset — `datasets/drug_interactions/interactions.json`
+
+A curated, **educational** knowledge base of common interactions and per-drug
+warning profiles (with drug aliases for matching). The loader infers the backend
+from the file extension, so the same `INTERACTIONS_DATASET` setting can point at
+a `.json`, `.csv` or `.sqlite` file with **no code changes**.
+
+### API endpoints
+
+| Method & path | Description |
+|---------------|-------------|
+| `POST /interactions/check` | Analyse a list of medicine names. Body: `{ medicines, include_rag, persist }`. Returns the full `InteractionReport`. |
+| `GET /interactions/history` | Paginated list of past analyses (`page`, `page_size`). |
+| `GET /interactions/{id}` | Full stored report for one analysis. |
+| `GET /interactions/health` | Knowledge-base readiness + size (ops/debug). |
+| `DELETE /interactions/history` | Clear stored analyses. |
+
+### Frontend
+
+- **Automatic:** when the OCR pipeline detects ≥2 medicines, the backend attaches
+  a `drug_interactions` report to the OCR result. The **Prescription OCR** page
+  renders a new **Drug Interaction Report** card: interaction summary, overall
+  risk level, **color-coded severity badges**, medicines involved, recommendations
+  and collapsible per-drug warnings.
+- **On demand:** a **Re-check interactions** button re-analyses the edited medicine
+  list via `POST /interactions/check`.
+- Reusable component: `frontend/src/ui/DrugInteractionReport.jsx`.
+
+### How the workflow operates
+
+1. User analyses a prescription → `POST /ocr/extract-prescription`.
+2. After OCR, `_attach_interactions(...)` runs (best-effort, can **never** break
+   OCR). If ≥2 medicines are found it calls `drug_interactions.analyze_medicines(...)`
+   and attaches the report inline; the OCR history captures it too.
+3. The OCR results page renders the **Drug Interaction Report** card.
+4. Editing medicines and tapping **Re-check** calls `/interactions/check` again.
+
+### Designed for future API integration
+
+The `InteractionDataSource` abstraction and `RemoteAPIDataSource` stub document
+exactly where to plug in **FDA / OpenFDA / RxNorm / DrugBank**: implement `load()`
+(bulk-sync into the canonical shape) or override per-query lookups, then register
+the source in `service.build_source()` and set `INTERACTIONS_SOURCE`. The analysis
+and UI code stay unchanged.
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `INTERACTIONS_DATASET` | `datasets/drug_interactions/interactions.json` | Knowledge-base file (json/csv/sqlite). |
+| `INTERACTIONS_SOURCE` | `auto` | Backend override: `auto`/`json`/`csv`/`sqlite`/`openfda`/`rxnorm`/`drugbank`. |
+| `INTERACTIONS_DB_URL` | local SQLite (`…/interactions.db`) | History store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `INTERACTION_MATCH_THRESHOLD` | `82` | Fuzzy-match floor (0–100) for resolving OCR'd names to known drugs. |
+| `INTERACTIONS_USE_RAG` | `true` | Enrich reports with knowledge-base context when available. |
+
+> ⚕️ **Disclaimer:** this analysis is for educational support only and is **not**
+> a substitute for a qualified clinician or pharmacist.
 
 ---
 

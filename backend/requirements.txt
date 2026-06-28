@@ -12,6 +12,12 @@ rapidfuzz>=3.6                  # fuzzy medicine matching
 jellyfish>=1.0                 # phonetic (metaphone) matching  [optional but recommended]
 python-dotenv>=1.0             # optional: load .env
 
+# Drug Interaction Analysis — backend/drug_interactions/
+# No extra dependencies: reuses fastapi, pydantic, rapidfuzz (matching) and the
+# async SQLAlchemy + aiosqlite stack below. The dataset loader supports JSON/CSV
+# (stdlib) and SQLite (stdlib sqlite3); a live FDA/RxNorm/OpenFDA/DrugBank source
+# would add an HTTP client (e.g. httpx) when implemented.
+
 # Persistence — OCR history (backend/history/)
 # SQLite (via aiosqlite) by default; for PostgreSQL set
 #   DATABASE_URL=postgresql+asyncpg://user:pass@host/db   and install asyncpg.

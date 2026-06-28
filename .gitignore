@@ -22,4 +22,7 @@ backend/rag/vector_store/
 backend/history/*.db
 backend/history/images/
 
+# Drug Interaction history store — local SQLite DB
+backend/drug_interactions/*.db
+
 *.zip

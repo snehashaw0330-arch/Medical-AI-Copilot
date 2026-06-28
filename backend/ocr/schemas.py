@@ -63,6 +63,9 @@ class PrescriptionResult(BaseModel):
     warnings: list[str] = []
     engines: dict[str, Any] = {}         # per-engine score table (debug)
     best_engine: str | None = None
+    # Auto-populated when >=2 medicines are detected (see ocr/router.py). Optional
+    # and defaulted so older clients and non-OCR callers are unaffected.
+    drug_interactions: dict[str, Any] | None = None
 
 
 # ==========================================================================

@@ -1,0 +1,492 @@
+{
+  "_comment": "Drug interaction knowledge base for the Medical AI Assistant. This is an EDUCATIONAL, non-exhaustive curated dataset — NOT a substitute for a clinical pharmacist or an authoritative drug-interaction service (FDA/RxNorm/OpenFDA/DrugBank). The loader (backend/drug_interactions/service.py) is source-agnostic: this same shape can be served from CSV, SQLite or a live API. Severities: none | low | moderate | high | critical.",
+  "version": "1.0.0",
+  "interactions": [
+    {
+      "drugs": ["warfarin", "aspirin"],
+      "severity": "high",
+      "clinical_risk": "Major bleeding",
+      "explanation": "Both drugs impair haemostasis — warfarin inhibits clotting-factor synthesis while aspirin irreversibly inhibits platelet aggregation. Together they substantially raise the risk of gastrointestinal and intracranial haemorrhage.",
+      "recommendation": "Avoid the combination unless a specialist has explicitly indicated it (e.g. mechanical valve). If co-prescribed, use the lowest aspirin dose, add gastroprotection, and monitor INR and for signs of bleeding.",
+      "clinical_notes": "Risk is additive and dose-dependent. Counsel the patient to report black stools, unusual bruising or bleeding gums immediately."
+    },
+    {
+      "drugs": ["warfarin", "ibuprofen"],
+      "severity": "high",
+      "clinical_risk": "GI bleeding and raised INR",
+      "explanation": "NSAIDs add antiplatelet effect and direct gastric mucosal injury on top of warfarin's anticoagulation, and can displace warfarin from plasma proteins — increasing both bleeding risk and INR.",
+      "recommendation": "Prefer paracetamol for analgesia. If an NSAID is unavoidable, use the shortest course with a PPI and monitor INR closely.",
+      "clinical_notes": "Applies as a class effect to most non-selective NSAIDs."
+    },
+    {
+      "drugs": ["warfarin", "clarithromycin"],
+      "severity": "high",
+      "clinical_risk": "Bleeding from elevated INR",
+      "explanation": "Clarithromycin is a potent CYP3A4 inhibitor and reduces warfarin clearance, sharply increasing INR and bleeding risk.",
+      "recommendation": "Choose a non-interacting antibiotic where possible. If clarithromycin is required, check INR within 3–5 days and adjust the warfarin dose.",
+      "clinical_notes": "Azithromycin has a lower interaction potential and is often preferred."
+    },
+    {
+      "drugs": ["warfarin", "ciprofloxacin"],
+      "severity": "high",
+      "clinical_risk": "Bleeding from elevated INR",
+      "explanation": "Ciprofloxacin inhibits warfarin metabolism (CYP1A2/3A4) and alters gut flora that synthesise vitamin K, potentiating anticoagulation.",
+      "recommendation": "Monitor INR closely during and shortly after the antibiotic course; anticipate a warfarin dose reduction.",
+      "clinical_notes": "Effect can persist for several days after the antibiotic stops."
+    },
+    {
+      "drugs": ["aspirin", "ibuprofen"],
+      "severity": "moderate",
+      "clinical_risk": "Reduced cardioprotection and GI injury",
+      "explanation": "Ibuprofen competes for the COX-1 binding site and can block aspirin's irreversible antiplatelet effect; the combination also increases gastrointestinal toxicity.",
+      "recommendation": "Take low-dose aspirin at least 30 minutes before, or 8 hours after, ibuprofen. Consider gastroprotection.",
+      "clinical_notes": "Most relevant when aspirin is used for cardiovascular protection."
+    },
+    {
+      "drugs": ["simvastatin", "clarithromycin"],
+      "severity": "critical",
+      "clinical_risk": "Rhabdomyolysis and acute kidney injury",
+      "explanation": "Clarithromycin strongly inhibits CYP3A4, which metabolises simvastatin. Statin levels can rise many-fold, causing severe muscle breakdown that may precipitate kidney failure.",
+      "recommendation": "Contraindicated. Withhold simvastatin during the clarithromycin course, or use a non-CYP3A4 statin such as pravastatin/rosuvastatin.",
+      "clinical_notes": "Counsel the patient to stop and seek care if they develop muscle pain, weakness or dark urine."
+    },
+    {
+      "drugs": ["atorvastatin", "clarithromycin"],
+      "severity": "high",
+      "clinical_risk": "Myopathy / rhabdomyolysis",
+      "explanation": "Clarithromycin inhibits CYP3A4-mediated atorvastatin metabolism, raising statin exposure and the risk of dose-dependent muscle toxicity.",
+      "recommendation": "Cap atorvastatin at 20 mg, or pause it during the antibiotic course; monitor for muscle symptoms.",
+      "clinical_notes": "Lower risk than simvastatin but still clinically important."
+    },
+    {
+      "drugs": ["simvastatin", "amlodipine"],
+      "severity": "moderate",
+      "clinical_risk": "Myopathy at higher statin doses",
+      "explanation": "Amlodipine modestly inhibits CYP3A4, increasing simvastatin exposure and muscle-toxicity risk at higher doses.",
+      "recommendation": "Do not exceed simvastatin 20 mg daily when combined with amlodipine.",
+      "clinical_notes": "A documented dose-limit interaction in product labelling."
+    },
+    {
+      "drugs": ["sildenafil", "nitroglycerin"],
+      "severity": "critical",
+      "clinical_risk": "Life-threatening hypotension",
+      "explanation": "Both potentiate nitric-oxide/cGMP vasodilation. Co-administration can cause a profound, refractory drop in blood pressure.",
+      "recommendation": "Absolutely contraindicated. Do not use nitrates within 24 hours of sildenafil (48 hours for tadalafil).",
+      "clinical_notes": "Applies to all PDE5 inhibitors with any nitrate, including recreational nitrites."
+    },
+    {
+      "drugs": ["lisinopril", "spironolactone"],
+      "severity": "high",
+      "clinical_risk": "Severe hyperkalaemia",
+      "explanation": "ACE inhibitors and potassium-sparing diuretics each raise serum potassium; together they can cause dangerous hyperkalaemia and cardiac arrhythmias, especially with renal impairment.",
+      "recommendation": "Monitor serum potassium and renal function within 1 week of starting/changing dose. Avoid additional potassium supplements.",
+      "clinical_notes": "Higher risk in elderly patients and chronic kidney disease."
+    },
+    {
+      "drugs": ["losartan", "spironolactone"],
+      "severity": "high",
+      "clinical_risk": "Severe hyperkalaemia",
+      "explanation": "ARBs and potassium-sparing diuretics additively increase serum potassium, risking hyperkalaemia and arrhythmia.",
+      "recommendation": "Monitor potassium and renal function closely; avoid in significant renal impairment.",
+      "clinical_notes": "Same mechanism class as ACE-inhibitor + spironolactone."
+    },
+    {
+      "drugs": ["lisinopril", "ibuprofen"],
+      "severity": "moderate",
+      "clinical_risk": "Reduced BP control and acute kidney injury",
+      "explanation": "NSAIDs blunt the antihypertensive effect of ACE inhibitors and, by constricting the renal afferent arteriole, can impair kidney function — the 'triple whammy' is worse with a diuretic added.",
+      "recommendation": "Limit NSAID use; prefer paracetamol. Monitor blood pressure and renal function if combined.",
+      "clinical_notes": "Risk escalates sharply when a diuretic is also present."
+    },
+    {
+      "drugs": ["methotrexate", "ibuprofen"],
+      "severity": "high",
+      "clinical_risk": "Methotrexate toxicity",
+      "explanation": "NSAIDs reduce renal clearance of methotrexate, raising plasma levels and the risk of marrow suppression, mucositis and hepatotoxicity — particularly at higher MTX doses.",
+      "recommendation": "Avoid NSAIDs around methotrexate dosing, especially high-dose regimens. Monitor full blood count and renal function.",
+      "clinical_notes": "Low-dose weekly MTX is lower risk but still warrants caution."
+    },
+    {
+      "drugs": ["methotrexate", "aspirin"],
+      "severity": "high",
+      "clinical_risk": "Methotrexate toxicity",
+      "explanation": "Salicylates displace methotrexate from protein binding and reduce its renal excretion, increasing toxicity.",
+      "recommendation": "Avoid concurrent use; if unavoidable, monitor MTX levels and blood counts.",
+      "clinical_notes": "Same mechanism family as the MTX–NSAID interaction."
+    },
+    {
+      "drugs": ["clopidogrel", "omeprazole"],
+      "severity": "moderate",
+      "clinical_risk": "Reduced antiplatelet protection",
+      "explanation": "Omeprazole inhibits CYP2C19, which activates clopidogrel to its active metabolite, potentially reducing its antiplatelet effect and cardiovascular protection.",
+      "recommendation": "Prefer pantoprazole or an H2 blocker for gastroprotection with clopidogrel.",
+      "clinical_notes": "Effect is most cited for omeprazole/esomeprazole."
+    },
+    {
+      "drugs": ["tramadol", "sertraline"],
+      "severity": "high",
+      "clinical_risk": "Serotonin syndrome and seizures",
+      "explanation": "Both increase serotonergic activity; tramadol also lowers the seizure threshold. Together they raise the risk of serotonin syndrome and convulsions.",
+      "recommendation": "Use with caution and the lowest effective doses; counsel on serotonin-syndrome symptoms (agitation, tremor, fever, rapid heart rate).",
+      "clinical_notes": "Applies broadly to tramadol with any SSRI/SNRI."
+    },
+    {
+      "drugs": ["tramadol", "fluoxetine"],
+      "severity": "high",
+      "clinical_risk": "Serotonin syndrome and seizures",
+      "explanation": "Fluoxetine is a strong serotonergic agent and CYP2D6 inhibitor; combined with tramadol it increases serotonin toxicity and seizure risk.",
+      "recommendation": "Avoid where possible; if combined, monitor closely and educate the patient on warning signs.",
+      "clinical_notes": "Fluoxetine's long half-life prolongs the interaction window."
+    },
+    {
+      "drugs": ["digoxin", "furosemide"],
+      "severity": "high",
+      "clinical_risk": "Digoxin toxicity from hypokalaemia",
+      "explanation": "Loop diuretics cause potassium and magnesium loss; low potassium sensitises the heart to digoxin, precipitating arrhythmias even at normal digoxin levels.",
+      "recommendation": "Monitor and replace potassium/magnesium; check digoxin level and ECG if toxicity is suspected.",
+      "clinical_notes": "Watch for nausea, visual disturbance and bradyarrhythmia."
+    },
+    {
+      "drugs": ["digoxin", "spironolactone"],
+      "severity": "moderate",
+      "clinical_risk": "Altered digoxin level and toxicity",
+      "explanation": "Spironolactone can increase digoxin levels (reduced clearance) and interfere with some digoxin assays.",
+      "recommendation": "Monitor digoxin levels and potassium; adjust the digoxin dose as needed.",
+      "clinical_notes": "Opposite potassium effect to loop diuretics, but still warrants monitoring."
+    },
+    {
+      "drugs": ["codeine", "alprazolam"],
+      "severity": "high",
+      "clinical_risk": "Respiratory and CNS depression",
+      "explanation": "Opioids and benzodiazepines additively depress the central nervous system and respiratory drive; the combination markedly increases the risk of sedation, respiratory depression and death.",
+      "recommendation": "Avoid co-prescribing where possible. If unavoidable, use the lowest doses for the shortest time and counsel on overdose risk.",
+      "clinical_notes": "Carries a boxed warning in many regulatory regions."
+    },
+    {
+      "drugs": ["levothyroxine", "omeprazole"],
+      "severity": "moderate",
+      "clinical_risk": "Reduced levothyroxine absorption",
+      "explanation": "Gastric acid aids levothyroxine absorption; acid suppression by PPIs can lower thyroid-hormone uptake and reduce efficacy.",
+      "recommendation": "Monitor TSH and adjust the levothyroxine dose; separate dosing times.",
+      "clinical_notes": "Take levothyroxine on an empty stomach, well separated from other drugs."
+    },
+    {
+      "drugs": ["levothyroxine", "calcium"],
+      "severity": "moderate",
+      "clinical_risk": "Reduced levothyroxine absorption",
+      "explanation": "Calcium salts bind levothyroxine in the gut, reducing absorption and thyroid-hormone levels.",
+      "recommendation": "Separate administration by at least 4 hours.",
+      "clinical_notes": "Same applies to iron and antacids."
+    }
+  ],
+  "profiles": {
+    "warfarin": {
+      "aliases": ["coumadin", "marevan"],
+      "contraindications": ["Active bleeding", "Severe hypertension", "Recent haemorrhagic stroke", "Pregnancy"],
+      "food": ["Keep vitamin-K intake (green leafy vegetables) consistent — large swings change INR", "Cranberry juice may increase INR"],
+      "alcohol": ["Binge drinking destabilises INR and raises bleeding risk; keep intake low and consistent"],
+      "pregnancy": ["Teratogenic — avoid in pregnancy, especially the first trimester (warfarin embryopathy)"],
+      "breastfeeding": ["Generally considered compatible; monitor the infant"],
+      "kidney": ["Use with care in renal impairment; bleeding risk is higher"],
+      "liver": ["Hepatic impairment increases sensitivity — lower doses and closer INR monitoring"],
+      "age_restrictions": ["Elderly are more sensitive; start low and monitor INR frequently"]
+    },
+    "aspirin": {
+      "aliases": ["acetylsalicylic acid", "asa", "ecosprin", "disprin"],
+      "contraindications": ["Active peptic ulcer", "Bleeding disorders", "Children under 16 with viral illness (Reye's syndrome)"],
+      "food": ["Take with food to reduce stomach irritation"],
+      "alcohol": ["Alcohol increases the risk of gastric bleeding"],
+      "pregnancy": ["Avoid analgesic doses in the third trimester (premature ductus closure); low-dose may be used under specialist advice"],
+      "breastfeeding": ["Avoid regular analgesic doses; low-dose cardiac aspirin is usually acceptable"],
+      "kidney": ["Can worsen renal function at analgesic doses, especially with dehydration"],
+      "liver": ["Use with caution in significant hepatic impairment"],
+      "age_restrictions": ["Contraindicated in children/teens with fever (Reye's syndrome)"]
+    },
+    "ibuprofen": {
+      "aliases": ["brufen", "advil", "nurofen"],
+      "contraindications": ["Active GI bleeding/ulcer", "Severe heart failure", "Severe renal impairment"],
+      "food": ["Take with or after food to reduce GI upset"],
+      "alcohol": ["Increases the risk of gastrointestinal bleeding"],
+      "pregnancy": ["Avoid in the third trimester; use only if essential earlier under advice"],
+      "breastfeeding": ["Considered compatible at usual doses"],
+      "kidney": ["Can cause acute kidney injury — avoid in significant renal impairment and dehydration"],
+      "liver": ["Use cautiously in liver disease"],
+      "age_restrictions": ["Caution in the elderly (GI, renal and cardiovascular risk)"]
+    },
+    "paracetamol": {
+      "aliases": ["acetaminophen", "tylenol", "calpol", "crocin", "dolo"],
+      "contraindications": ["Severe hepatic impairment", "Known hypersensitivity"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["Chronic alcohol use increases the risk of liver injury — limit total daily dose"],
+      "pregnancy": ["Analgesic of choice in pregnancy at the lowest effective dose"],
+      "breastfeeding": ["Compatible with breastfeeding"],
+      "kidney": ["Generally safe; reduce dose in severe renal impairment"],
+      "liver": ["Hepatotoxic in overdose; reduce dose and avoid in severe liver disease"],
+      "age_restrictions": ["Dose by weight in children; widely used across ages"]
+    },
+    "metformin": {
+      "aliases": ["glucophage", "glycomet"],
+      "contraindications": ["Severe renal impairment (eGFR < 30)", "Acute metabolic acidosis"],
+      "food": ["Take with meals to reduce GI side effects"],
+      "alcohol": ["Excess alcohol raises the risk of lactic acidosis — avoid heavy drinking"],
+      "pregnancy": ["May be continued/used in pregnancy under specialist guidance"],
+      "breastfeeding": ["Considered compatible; monitor the infant"],
+      "kidney": ["Contraindicated in severe renal impairment; hold around iodinated contrast and acute illness"],
+      "liver": ["Avoid in significant hepatic impairment (lactic-acidosis risk)"],
+      "age_restrictions": ["Assess renal function before use in the elderly"]
+    },
+    "lisinopril": {
+      "aliases": ["zestril", "prinivil"],
+      "contraindications": ["History of ACE-inhibitor angioedema", "Pregnancy", "Bilateral renal artery stenosis"],
+      "food": ["May be taken with or without food; avoid potassium-based salt substitutes"],
+      "alcohol": ["Alcohol can enhance the blood-pressure-lowering effect (dizziness)"],
+      "pregnancy": ["Contraindicated — foetal renal toxicity; stop and switch before/at pregnancy"],
+      "breastfeeding": ["Generally avoided in newborns; alternatives preferred"],
+      "kidney": ["Monitor renal function and potassium; can worsen function in renovascular disease"],
+      "liver": ["Generally safe; rare cholestatic injury reported"],
+      "age_restrictions": ["Start low in the elderly to avoid first-dose hypotension"]
+    },
+    "losartan": {
+      "aliases": ["cozaar"],
+      "contraindications": ["Pregnancy", "Bilateral renal artery stenosis"],
+      "food": ["May be taken with or without food; avoid potassium salt substitutes"],
+      "alcohol": ["May enhance hypotensive effect"],
+      "pregnancy": ["Contraindicated — foetal toxicity"],
+      "breastfeeding": ["Alternatives generally preferred"],
+      "kidney": ["Monitor renal function and potassium"],
+      "liver": ["Reduce dose in hepatic impairment"],
+      "age_restrictions": ["Start low in the elderly"]
+    },
+    "amlodipine": {
+      "aliases": ["norvasc", "amlong"],
+      "contraindications": ["Severe aortic stenosis", "Cardiogenic shock"],
+      "food": ["May be taken with or without food; grapefruit may raise levels slightly"],
+      "alcohol": ["May add to blood-pressure lowering"],
+      "pregnancy": ["Used when needed under specialist advice"],
+      "breastfeeding": ["Limited data; often considered acceptable"],
+      "kidney": ["No dose adjustment usually required"],
+      "liver": ["Start at a lower dose in hepatic impairment"],
+      "age_restrictions": ["Well tolerated in the elderly; watch for ankle oedema"]
+    },
+    "simvastatin": {
+      "aliases": ["zocor"],
+      "contraindications": ["Active liver disease", "Pregnancy and breastfeeding", "Strong CYP3A4 inhibitors"],
+      "food": ["Take in the evening; avoid grapefruit juice (raises levels)"],
+      "alcohol": ["Limit alcohol — additive risk of liver injury"],
+      "pregnancy": ["Contraindicated — stop before conception"],
+      "breastfeeding": ["Contraindicated"],
+      "kidney": ["Caution and lower doses in severe renal impairment (myopathy risk)"],
+      "liver": ["Contraindicated in active liver disease; monitor LFTs"],
+      "age_restrictions": ["Higher myopathy risk in the elderly"]
+    },
+    "atorvastatin": {
+      "aliases": ["lipitor", "atorva"],
+      "contraindications": ["Active liver disease", "Pregnancy and breastfeeding"],
+      "food": ["May be taken any time of day; avoid large amounts of grapefruit"],
+      "alcohol": ["Limit alcohol — additive hepatic risk"],
+      "pregnancy": ["Contraindicated"],
+      "breastfeeding": ["Contraindicated"],
+      "kidney": ["No major dose change; monitor for myopathy"],
+      "liver": ["Contraindicated in active liver disease; monitor LFTs"],
+      "age_restrictions": ["Watch for muscle symptoms in the elderly"]
+    },
+    "clarithromycin": {
+      "aliases": ["biaxin", "klacid"],
+      "contraindications": ["Concurrent use with certain statins/ergot drugs", "History of QT prolongation"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["No major interaction; alcohol may worsen GI upset"],
+      "pregnancy": ["Use only if clearly needed; alternatives often preferred"],
+      "breastfeeding": ["Considered compatible; monitor the infant"],
+      "kidney": ["Reduce dose in severe renal impairment"],
+      "liver": ["Caution in hepatic impairment; rare hepatotoxicity"],
+      "age_restrictions": ["Caution in the elderly (QT and interaction risk)"]
+    },
+    "ciprofloxacin": {
+      "aliases": ["cipro", "ciplox"],
+      "contraindications": ["History of tendon disorders with quinolones", "QT-prolonging conditions"],
+      "food": ["Avoid taking with dairy, antacids, iron or calcium (reduced absorption)"],
+      "alcohol": ["No direct interaction; alcohol may worsen dizziness"],
+      "pregnancy": ["Generally avoided; alternatives preferred"],
+      "breastfeeding": ["Use with caution; alternatives often preferred"],
+      "kidney": ["Reduce dose in renal impairment"],
+      "liver": ["Rare hepatotoxicity; caution in liver disease"],
+      "age_restrictions": ["Avoid in children/adolescents where possible (cartilage); higher tendon-rupture risk in the elderly"]
+    },
+    "amoxicillin": {
+      "aliases": ["amoxil", "mox"],
+      "contraindications": ["Penicillin allergy"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["No significant interaction"],
+      "pregnancy": ["Considered safe in pregnancy"],
+      "breastfeeding": ["Compatible with breastfeeding"],
+      "kidney": ["Reduce dose in significant renal impairment"],
+      "liver": ["Caution with co-amoxiclav (cholestatic injury)"],
+      "age_restrictions": ["Dose by weight in children; widely used across ages"]
+    },
+    "omeprazole": {
+      "aliases": ["prilosec", "omez"],
+      "contraindications": ["Hypersensitivity to PPIs"],
+      "food": ["Take 30–60 minutes before a meal"],
+      "alcohol": ["No direct interaction; alcohol may worsen reflux"],
+      "pregnancy": ["Considered acceptable when needed"],
+      "breastfeeding": ["Limited data; generally considered low risk"],
+      "kidney": ["No routine dose adjustment; rare interstitial nephritis"],
+      "liver": ["Reduce dose in severe hepatic impairment"],
+      "age_restrictions": ["Long-term use in the elderly: watch B12, magnesium and fracture risk"]
+    },
+    "clopidogrel": {
+      "aliases": ["plavix"],
+      "contraindications": ["Active bleeding", "Severe hepatic impairment"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["Heavy use increases bleeding risk"],
+      "pregnancy": ["Use only if clearly needed"],
+      "breastfeeding": ["Avoid; limited data"],
+      "kidney": ["No major adjustment; bleeding risk higher in renal impairment"],
+      "liver": ["Caution — prodrug activation is hepatic"],
+      "age_restrictions": ["Higher bleeding risk in the elderly"]
+    },
+    "tramadol": {
+      "aliases": ["ultram", "tramal"],
+      "contraindications": ["Uncontrolled epilepsy", "Concurrent MAO inhibitors", "Severe respiratory depression"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["Avoid — additive CNS and respiratory depression"],
+      "pregnancy": ["Avoid, especially near term (neonatal withdrawal/respiratory depression)"],
+      "breastfeeding": ["Not recommended"],
+      "kidney": ["Reduce dose / extend interval in renal impairment"],
+      "liver": ["Reduce dose in hepatic impairment"],
+      "age_restrictions": ["Caution in the elderly; lower seizure threshold"]
+    },
+    "sertraline": {
+      "aliases": ["zoloft"],
+      "contraindications": ["Concurrent MAO inhibitors", "Pimozide co-administration"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["Avoid — increased drowsiness and impaired judgement"],
+      "pregnancy": ["May be used under specialist advice; weigh risks/benefits"],
+      "breastfeeding": ["Often considered a preferred SSRI in lactation"],
+      "kidney": ["No major adjustment"],
+      "liver": ["Reduce dose in hepatic impairment"],
+      "age_restrictions": ["Monitor young adults for increased suicidal ideation early in treatment"]
+    },
+    "fluoxetine": {
+      "aliases": ["prozac"],
+      "contraindications": ["Concurrent MAO inhibitors", "Pimozide/thioridazine co-administration"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["Avoid — additive sedation"],
+      "pregnancy": ["Use under specialist advice"],
+      "breastfeeding": ["Higher infant exposure than sertraline; weigh risks"],
+      "kidney": ["No major adjustment"],
+      "liver": ["Reduce dose in hepatic impairment; long half-life"],
+      "age_restrictions": ["Monitor young adults for suicidal ideation early in treatment"]
+    },
+    "digoxin": {
+      "aliases": ["lanoxin"],
+      "contraindications": ["Ventricular fibrillation", "Certain AV blocks without pacing"],
+      "food": ["High-fibre meals can reduce absorption; keep intake consistent"],
+      "alcohol": ["No direct interaction"],
+      "pregnancy": ["Used when indicated; monitor levels"],
+      "breastfeeding": ["Considered compatible"],
+      "kidney": ["Renally cleared — reduce dose and monitor levels in renal impairment"],
+      "liver": ["No major adjustment"],
+      "age_restrictions": ["Narrow therapeutic index — elderly need lower doses and monitoring"]
+    },
+    "furosemide": {
+      "aliases": ["lasix", "frusemide"],
+      "contraindications": ["Anuria", "Severe electrolyte depletion"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["Can worsen orthostatic hypotension"],
+      "pregnancy": ["Use only if clearly needed"],
+      "breastfeeding": ["May suppress lactation; use with caution"],
+      "kidney": ["Used in renal impairment but monitor electrolytes and function"],
+      "liver": ["Caution in cirrhosis (electrolyte shifts can precipitate encephalopathy)"],
+      "age_restrictions": ["Elderly are prone to dehydration and electrolyte loss"]
+    },
+    "spironolactone": {
+      "aliases": ["aldactone"],
+      "contraindications": ["Hyperkalaemia", "Severe renal impairment", "Addison's disease"],
+      "food": ["Take with food; avoid potassium-rich salt substitutes"],
+      "alcohol": ["May enhance hypotension"],
+      "pregnancy": ["Avoid — anti-androgenic effects"],
+      "breastfeeding": ["Metabolite appears in milk; use with caution"],
+      "kidney": ["Risk of hyperkalaemia — avoid in significant renal impairment"],
+      "liver": ["Used in cirrhotic ascites but monitor electrolytes"],
+      "age_restrictions": ["Elderly at higher risk of hyperkalaemia"]
+    },
+    "methotrexate": {
+      "aliases": ["mtx", "trexall"],
+      "contraindications": ["Pregnancy", "Significant hepatic or renal impairment", "Active infection / immunodeficiency"],
+      "food": ["Take folic acid as prescribed on non-MTX days"],
+      "alcohol": ["Avoid — markedly increased hepatotoxicity"],
+      "pregnancy": ["Absolutely contraindicated — teratogenic and abortifacient"],
+      "breastfeeding": ["Contraindicated"],
+      "kidney": ["Renally cleared — reduced clearance raises toxicity; avoid nephrotoxins"],
+      "liver": ["Hepatotoxic — monitor LFTs; avoid in liver disease"],
+      "age_restrictions": ["Caution in the elderly (reduced renal clearance)"]
+    },
+    "codeine": {
+      "aliases": ["codeine phosphate"],
+      "contraindications": ["Children under 12", "Known ultra-rapid CYP2D6 metabolisers", "Respiratory depression"],
+      "food": ["May be taken with food to reduce nausea"],
+      "alcohol": ["Avoid — additive CNS and respiratory depression"],
+      "pregnancy": ["Avoid near term (neonatal withdrawal/respiratory depression)"],
+      "breastfeeding": ["Avoid — risk to the infant in rapid metabolisers"],
+      "kidney": ["Reduce dose in renal impairment (active metabolite accumulation)"],
+      "liver": ["Reduced activation but caution with sedation"],
+      "age_restrictions": ["Contraindicated under 12; caution in the elderly"]
+    },
+    "alprazolam": {
+      "aliases": ["xanax"],
+      "contraindications": ["Severe respiratory insufficiency", "Sleep apnoea", "Acute narrow-angle glaucoma"],
+      "food": ["May be taken with or without food"],
+      "alcohol": ["Avoid — dangerous additive CNS/respiratory depression"],
+      "pregnancy": ["Avoid — risk of neonatal sedation/withdrawal"],
+      "breastfeeding": ["Not recommended"],
+      "kidney": ["Caution in renal impairment"],
+      "liver": ["Reduce dose in hepatic impairment"],
+      "age_restrictions": ["Elderly: increased fall and confusion risk — use lowest dose"]
+    },
+    "levothyroxine": {
+      "aliases": ["synthroid", "eltroxin", "thyronorm"],
+      "contraindications": ["Untreated thyrotoxicosis", "Acute myocardial infarction"],
+      "food": ["Take on an empty stomach, 30–60 min before breakfast; separate from calcium/iron"],
+      "alcohol": ["No significant interaction"],
+      "pregnancy": ["Continue and often increase the dose; monitor TSH closely"],
+      "breastfeeding": ["Compatible with breastfeeding"],
+      "kidney": ["No adjustment needed"],
+      "liver": ["No adjustment needed"],
+      "age_restrictions": ["Start low and titrate slowly in the elderly and in cardiac disease"]
+    },
+    "prednisone": {
+      "aliases": ["prednisolone", "deltasone"],
+      "contraindications": ["Systemic fungal infection", "Live vaccines during high-dose therapy"],
+      "food": ["Take with food to reduce gastric irritation"],
+      "alcohol": ["Increases the risk of gastric irritation/bleeding"],
+      "pregnancy": ["Used when needed; lowest effective dose"],
+      "breastfeeding": ["Considered compatible at usual doses"],
+      "kidney": ["May cause fluid retention; monitor in renal impairment"],
+      "liver": ["Prednisone needs hepatic activation — use prednisolone in liver failure"],
+      "age_restrictions": ["Elderly: higher risk of osteoporosis, hyperglycaemia and infection"]
+    },
+    "sildenafil": {
+      "aliases": ["viagra", "revatio"],
+      "contraindications": ["Concurrent nitrates", "Severe cardiovascular disease", "Recent stroke/MI"],
+      "food": ["A high-fat meal delays onset"],
+      "alcohol": ["Excess alcohol worsens hypotension and reduces efficacy"],
+      "pregnancy": ["Not typically used; specialist contexts only"],
+      "breastfeeding": ["Limited data"],
+      "kidney": ["Lower starting dose in severe renal impairment"],
+      "liver": ["Lower starting dose in hepatic impairment"],
+      "age_restrictions": ["Lower starting dose and cardiovascular assessment in the elderly"]
+    },
+    "nitroglycerin": {
+      "aliases": ["gtn", "glyceryl trinitrate", "nitroglycerine", "isosorbide"],
+      "contraindications": ["Concurrent PDE5 inhibitors (sildenafil/tadalafil)", "Severe hypotension", "Raised intracranial pressure"],
+      "food": ["Sublingual forms act fastest on an empty mouth"],
+      "alcohol": ["Avoid — additive severe hypotension"],
+      "pregnancy": ["Use only if clearly needed"],
+      "breastfeeding": ["Limited data; use with caution"],
+      "kidney": ["No major adjustment"],
+      "liver": ["No major adjustment"],
+      "age_restrictions": ["Elderly are prone to orthostatic hypotension"]
+    }
+  }
+}
