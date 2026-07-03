@@ -25,4 +25,11 @@ backend/history/images/
 # Drug Interaction history store — local SQLite DB
 backend/drug_interactions/*.db
 
+# Clinical Decision Support history store — local SQLite DB
+backend/clinical_decision/*.db
+
+# Medical Report Generator — local SQLite DB + retained prescription images
+backend/report_generator/*.db
+backend/report_generator/images/
+
 *.zip

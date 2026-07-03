@@ -103,6 +103,54 @@ class Settings:
         os.getenv("INTERACTIONS_USE_RAG", "true").lower() == "true"
     )
 
+    # --- Clinical Decision Support (backend/clinical_decision/) ------------
+    # Persistent history of clinical analyses. Same async URL contract as the
+    # other stores — defaults to a local SQLite file; set DATABASE_URL or
+    # CLINICAL_DB_URL to PostgreSQL in production with no code changes.
+    CLINICAL_DB_URL: str = os.getenv(
+        "CLINICAL_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/clinical_decision/clinical.db')}",
+        ),
+    )
+    # Enrich the clinical report with RAG knowledge-base context when available.
+    CLINICAL_USE_RAG: bool = (
+        os.getenv("CLINICAL_USE_RAG", "true").lower() == "true"
+    )
+    # Run disease prediction from symptoms inside the clinical analysis when no
+    # disease/diagnosis is supplied by the caller.
+    CLINICAL_PREDICT_DISEASE: bool = (
+        os.getenv("CLINICAL_PREDICT_DISEASE", "true").lower() == "true"
+    )
+    # Automatically produce a clinical report after OCR when medicines are found
+    # (OCR -> matching -> interactions -> RAG -> CDSS). Best-effort and non-fatal
+    # by contract — a CDSS failure never blocks or breaks the OCR response.
+    CLINICAL_AUTO_ON_OCR: bool = (
+        os.getenv("CLINICAL_AUTO_ON_OCR", "true").lower() == "true"
+    )
+
+    # --- Medical Report Generator (backend/report_generator/) -------------
+    # Persistent store of generated medical reports. Same async URL contract as
+    # the other stores — defaults to a local SQLite file; set DATABASE_URL or
+    # REPORTS_DB_URL to PostgreSQL in production with no code changes.
+    REPORTS_DB_URL: str = os.getenv(
+        "REPORTS_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/report_generator/reports.db')}",
+        ),
+    )
+    # Where the prescription image is retained for each report (detail view + PDF).
+    REPORTS_IMAGE_DIR: str = _path(
+        os.getenv("REPORTS_IMAGE_DIR", "backend/report_generator/images")
+    )
+    # Automatically generate + store a report after every successful OCR analysis.
+    # Best-effort and non-fatal by contract — a report failure never breaks OCR.
+    REPORTS_AUTO_ON_OCR: bool = (
+        os.getenv("REPORTS_AUTO_ON_OCR", "true").lower() == "true"
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(
@@ -121,3 +169,4 @@ settings = Settings()
 # Make sure the storage directories exist at import time.
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 Path(settings.HISTORY_IMAGE_DIR).mkdir(parents=True, exist_ok=True)
+Path(settings.REPORTS_IMAGE_DIR).mkdir(parents=True, exist_ok=True)

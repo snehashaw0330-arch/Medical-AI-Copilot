@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AreaChart,
@@ -17,11 +18,19 @@ import {
   TrendingUp,
   ShieldCheck,
   Clock,
+  BrainCircuit,
+  AlertOctagon,
+  ShieldAlert,
+  ClipboardList,
+  FileText,
+  FileStack,
+  CalendarClock,
 } from 'lucide-react'
 import Card from '@/ui/Card'
 import Button from '@/ui/Button'
 import Badge from '@/ui/Badge'
 import { getPredictions, getReports } from '@/lib/storage'
+import { getClinicalStats, getReportStats } from '@/lib/api'
 
 const FEATURES = [
   {
@@ -79,10 +88,41 @@ function StatCard({ icon: Icon, label, value, trend, tone = 'primary' }) {
   )
 }
 
+// Color-coded clinical-risk card for the CDSS dashboard row (Requirement 8).
+function RiskCard({ icon: Icon, label, value, tone }) {
+  const TONES = {
+    danger: 'bg-danger/15 text-danger',
+    warning: 'bg-warning/15 text-warning',
+    primary: 'bg-primary-soft text-primary',
+    neutral: 'bg-surface-2 text-muted',
+  }
+  return (
+    <Card hover className="flex items-center gap-4">
+      <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${TONES[tone] || TONES.neutral}`}>
+        <Icon size={22} />
+      </span>
+      <div className="min-w-0">
+        <p className="text-sm text-muted">{label}</p>
+        <p className="text-2xl font-bold text-foreground">{value}</p>
+      </div>
+    </Card>
+  )
+}
+
 export default function Dashboard() {
   const predictions = getPredictions()
   const reports = getReports()
   const medsFound = reports.reduce((a, r) => a + (r.medicineCount || 0), 0)
+
+  // Clinical decision-support aggregates (best-effort — dashes if backend down).
+  const [clinical, setClinical] = useState(null)
+  const [reportStats, setReportStats] = useState(null)
+  useEffect(() => {
+    getClinicalStats().then(setClinical).catch(() => setClinical(null))
+    getReportStats().then(setReportStats).catch(() => setReportStats(null))
+  }, [])
+  const cv = (k) => (clinical ? clinical[k] ?? 0 : '—')
+  const rv = (k) => (reportStats ? reportStats[k] ?? 0 : '—')
 
   return (
     <div className="space-y-6">
@@ -118,6 +158,49 @@ export default function Dashboard() {
         <StatCard icon={ScanLine} label="Prescriptions scanned" value={reports.length} trend="live" />
         <StatCard icon={Pill} label="Medicines extracted" value={medsFound} />
         <StatCard icon={ShieldCheck} label="Model accuracy*" value="—" />
+      </section>
+
+      {/* Clinical Decision Support risk overview (Requirement 8) */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BrainCircuit size={18} className="text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Clinical Decision Support</h3>
+          </div>
+          <Link to="/clinical" className="inline-flex items-center gap-1 text-sm font-medium text-primary">
+            Open <ArrowRight size={14} />
+          </Link>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <RiskCard icon={ClipboardList} label="Total Clinical Reports" value={cv('total_reports')} tone="primary" />
+          <RiskCard icon={AlertOctagon} label="High Risk Cases" value={cv('high_risk_cases')} tone="danger" />
+          <RiskCard icon={ShieldAlert} label="Moderate Risk Cases" value={cv('moderate_risk_cases')} tone="warning" />
+          <RiskCard icon={ShieldCheck} label="Low Risk Cases" value={cv('low_risk_cases')} tone="primary" />
+        </div>
+      </section>
+
+      {/* Medical Reports overview (Requirement 8) */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText size={18} className="text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Medical Reports</h3>
+          </div>
+          <Link to="/reports" className="inline-flex items-center gap-1 text-sm font-medium text-primary">
+            Open <ArrowRight size={14} />
+          </Link>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <RiskCard icon={FileStack} label="Total Reports" value={rv('total_reports')} tone="primary" />
+          <RiskCard icon={CalendarClock} label="Generated Today" value={rv('reports_today')} tone="primary" />
+          <RiskCard
+            icon={ShieldCheck}
+            label="Average OCR Confidence"
+            value={reportStats ? `${Math.round((reportStats.average_confidence || 0) * 100)}%` : '—'}
+            tone="primary"
+          />
+          <RiskCard icon={AlertOctagon} label="High Risk Reports" value={rv('high_risk_reports')} tone="danger" />
+        </div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-3">

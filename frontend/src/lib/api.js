@@ -227,6 +227,98 @@ export async function getInteractionReport(id) {
   return data
 }
 
+// ---------------- Clinical Decision Support (CDSS) ----------------
+// Fuses OCR medicines, disease prediction, drug interactions and RAG into one
+// risk-graded clinical report. Analysis also runs automatically after OCR (the
+// OCR result carries `clinical_report`), but this endpoint lets the dedicated
+// Clinical Decision page and edited-list re-checks run it on demand. Disease
+// prediction + RAG can be slow, so use a longer timeout than the fast defaults.
+const CLINICAL_TIMEOUT = 120_000 // 2 min (disease model + RAG can be slow)
+
+export async function analyzeClinical(payload) {
+  // payload: { medicines, symptoms, disease, diagnosis, age, gender,
+  //            include_rag, run_disease_prediction, persist, source_record_id }
+  const { data } = await API.post('/clinical/analyze', payload, {
+    timeout: CLINICAL_TIMEOUT,
+  })
+  return data
+}
+
+export async function getClinicalHistory(params = {}) {
+  // params: { page, page_size }
+  const { data } = await API.get('/clinical/history', { params })
+  return data
+}
+
+export async function getClinicalStats() {
+  const { data } = await API.get('/clinical/stats')
+  return data
+}
+
+export async function getClinicalReport(id) {
+  const { data } = await API.get(`/clinical/${id}`)
+  return data
+}
+
+// ---------------- Medical Report Generator ----------------
+// Durable, exportable reports (PDF / JSON / HTML) assembled from an OCR analysis.
+// A report is also generated automatically after every OCR run (the OCR result
+// carries `report_id`); these endpoints power the Medical Reports page + viewer.
+export async function generateReport(payload) {
+  // payload: { ocr_result, filename, processing_time, source_record_id,
+  //            image_data_url, persist }
+  const { data } = await API.post('/reports/generate', payload, { timeout: 60_000 })
+  return data
+}
+
+export async function getReports(params = {}) {
+  // params: { q, patient, date_from, date_to, page, page_size }
+  const clean = Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+  )
+  const { data } = await API.get('/reports', { params: clean })
+  return data
+}
+
+export async function getReportStats() {
+  const { data } = await API.get('/reports/stats')
+  return data
+}
+
+export async function getReport(id) {
+  const { data } = await API.get(`/reports/${id}`)
+  return data
+}
+
+export async function deleteReport(id) {
+  const { data } = await API.delete(`/reports/${id}`)
+  return data
+}
+
+/** Absolute URL of a report's retained prescription image (for <img> / fetch). */
+export function reportImageUrl(id) {
+  return `${API.defaults.baseURL}/reports/${id}/image`
+}
+
+/** Absolute URL of a report export (format: 'pdf' | 'json' | 'html'). */
+export function reportExportUrl(id, format) {
+  return `${API.defaults.baseURL}/reports/${id}/${format}`
+}
+
+/**
+ * Fetch a report export as a Blob (robust cross-origin download). Returns the
+ * Blob so the caller can trigger a client-side save with the right filename.
+ */
+export async function fetchReportBlob(id, format) {
+  const params = format === 'html' ? { download: 1 } : undefined
+  const res = await API.get(`/reports/${id}/${format}`, {
+    responseType: 'blob',
+    timeout: 60_000,
+    params,
+  })
+  return res.data
+}
+
 // ---------------- Health (used by Dashboard) ----------------
 export async function getHealth() {
   const { data } = await API.get('/')

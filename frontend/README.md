@@ -9,6 +9,8 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 - 🔎 AI Image Quality Assessment (pre-OCR)
 - 🗂️ Prescription OCR History (persistent, searchable)
 - ⚠️ Drug Interaction Analysis (auto-run after OCR; severity, warnings & recommendations)
+- 🧠 Clinical Decision Support (CDSS) — risk-graded clinical reports fusing OCR, disease prediction, interactions & RAG
+- 📑 Medical Report Generator — comprehensive reports auto-generated after OCR, exportable as PDF / JSON / HTML
 - 💊 Medicine Information Search
 - 🤖 AI Medical Chat Assistant
 - 📊 Confidence-based Predictions
@@ -48,6 +50,8 @@ medical-ai-assistant/
 │   ├── ocr/            # OCR pipeline + image quality assessment
 │   ├── history/        # OCR History module (models, schemas, service, router)
 │   ├── drug_interactions/  # Drug Interaction Analysis (models, schemas, service, router, utils)
+│   ├── clinical_decision/  # Clinical Decision Support (rules_engine, risk_analyzer, recommendation_engine, service, ...)
+│   ├── report_generator/   # Medical Report Generator (report_builder, templates, pdf_generator, service, ...)
 │   ├── disease/        # Disease prediction
 │   ├── rag/            # Retrieval-augmented Q&A
 │   └── app.py          # FastAPI app — wires all routers
@@ -121,6 +125,9 @@ http://127.0.0.1:8000/docs
 - Prescription OCR
 - Image Quality Assessment
 - Prescription OCR History
+- Drug Interaction Analysis
+- Clinical Decision Support (CDSS)
+- Medical Report Generator
 - Medicine Search
 - AI Chat Assistant
 
@@ -283,6 +290,203 @@ and UI code stay unchanged.
 
 > ⚕️ **Disclaimer:** this analysis is for educational support only and is **not**
 > a substitute for a qualified clinician or pharmacist.
+
+---
+
+## 🧠 Clinical Decision Support (CDSS)
+
+A production-ready module that **synthesises every other subsystem** into a single,
+risk-graded clinical report. It takes OCR-extracted medicines, patient demographics
+(age/gender), symptoms and a diagnosis, then runs disease prediction, drug-interaction
+analysis and a deterministic clinical **rules engine**, enriches with the RAG knowledge
+base, and grades the overall risk. It runs **automatically after OCR** (completing the
+`OCR → Medicine Matching → Drug Interaction → RAG → Clinical Decision Support → Final Report`
+pipeline) and is also available as a **dedicated page** for ad-hoc clinician input.
+
+### What it generates (the `ClinicalReport`)
+
+- **Clinical Summary** — a readable synthesis of the case
+- **Disease Prediction** — candidate conditions (from the ML model or supplied input)
+- **Possible Risks** and **Contraindications**
+- **Red Flag Alerts** — urgent findings (chest pain, stroke signs, GI bleed, …)
+- **Drug Interaction Alerts** — the full interaction sub-report, reused verbatim
+- **Missing Information** — what would sharpen the assessment
+- **Recommended Next Steps**, **Recommended Lab Tests**, and **Follow-up Suggestions**
+- **Risk Level** — `low` · `moderate` · `high` · `critical` (color-coded badges)
+- **Risk Score** (0–100), **Confidence Score** (0–100), and **Sources Used**
+
+### Risk levels & color coding
+
+| Level | Badge tone | Meaning |
+|-------|-----------|---------|
+| 🟦 Low | primary | Routine care; confirm the medication list. |
+| 🟨 Moderate | warning | Clinician confirmation + counselling on cautions. |
+| 🟥 High | danger | Prompt review of flagged findings before dispensing. |
+| 🟥 Critical | danger | Escalate now — emergency/urgent review. |
+
+The headline level is driven by the **most dangerous single signal** (a critical red
+flag or interaction forces a `CRITICAL` report); lesser signals accumulate additively
+into the 0–100 score, so two moderate cases can still be ranked.
+
+### Backend module — `backend/clinical_decision/`
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Pydantic contract: `RiskLevel` enum, `ClinicalAnalysisRequest`, `RedFlag`, `DiseaseHypothesis`, `ClinicalReport`, history + stats models. |
+| `models.py` | SQLAlchemy ORM model (`ClinicalRecord`) with portable column types (SQLite **and** PostgreSQL). |
+| `rules_engine.py` | **Pure medical knowledge** (no I/O): red-flag symptoms, age/pediatric/elderly cautions, pregnancy checks, polypharmacy, disease→lab-test and drug→monitoring maps, contraindications and missing-info detection. Data-table driven so a clinician can audit/extend it. |
+| `risk_analyzer.py` | Pure scoring: fuses red flags + interaction severity + rule findings into a `RiskLevel` and a 0–100 `risk_score`. |
+| `recommendation_engine.py` | Pure composition: prioritised next steps, follow-up advice, the clinical summary, and the confidence score. |
+| `service.py` | Async orchestration + persistence: runs disease prediction (in a worker thread) and interactions **concurrently**, adds RAG context, applies the rules, and persists — every external call is best-effort and never breaks the report. |
+| `router.py` | Async FastAPI routes under `/clinical`, with logging + exception handling. |
+| `__init__.py` | Public surface: `router`, `analyze_clinical`, `get_service`. |
+
+### API endpoints
+
+| Method & path | Description |
+|---------------|-------------|
+| `POST /clinical/analyze` | Run a full analysis. Body: `{ medicines, symptoms, disease, diagnosis, age, gender, include_rag, run_disease_prediction, persist, source_record_id }`. Returns the full `ClinicalReport`. |
+| `GET /clinical/history` | Paginated list of past analyses (`page`, `page_size`). |
+| `GET /clinical/stats` | Dashboard aggregates: total reports + critical / high / moderate / low counts + average risk score. |
+| `GET /clinical/{id}` | Full stored report for one analysis. |
+| `DELETE /clinical/history` | Clear stored analyses. |
+
+### Frontend
+
+- **Dedicated page** — a new **Clinical Decision** sidebar page (`/clinical`): enter
+  medicines, symptoms, diagnosis, age and gender → get the full report. Recent reports
+  are listed and re-openable.
+- **Automatic on OCR** — the OCR result carries a `clinical_report`, rendered inline on
+  the **Prescription OCR** page below the interaction card.
+- **Dashboard cards** — Total Clinical Reports, High Risk, Moderate Risk and Low Risk
+  cases (from `GET /clinical/stats`).
+- Reusable component: `frontend/src/ui/ClinicalReport.jsx` (embeds the existing
+  `DrugInteractionReport` for the interaction section — no duplicated UI).
+
+### How the workflow operates
+
+1. **After OCR** (`POST /ocr/extract-prescription`): the pipeline extracts and matches
+   medicines, `_attach_interactions(...)` runs the drug-interaction analysis, then
+   `_attach_clinical(...)` runs the CDSS — **reusing** that interaction report (no
+   recompute) and the parsed patient fields (age/gender/diagnosis). Both are best-effort
+   and can **never** break the OCR response; both are captured in the OCR history record.
+2. The OCR results page renders the **Clinical Decision Report** inline.
+3. **On the dedicated page**, `POST /clinical/analyze` runs disease prediction +
+   interactions **concurrently**, adds RAG context, applies the rules engine, grades the
+   risk, and persists the report.
+4. The **Dashboard** reads `GET /clinical/stats` for the risk-overview cards.
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `CLINICAL_DB_URL` | local SQLite (`…/clinical.db`) | History store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `CLINICAL_USE_RAG` | `true` | Enrich reports with knowledge-base context when available. |
+| `CLINICAL_PREDICT_DISEASE` | `true` | Run disease prediction from symptoms when no diagnosis is supplied. |
+| `CLINICAL_AUTO_ON_OCR` | `true` | Auto-generate a clinical report after OCR. |
+
+> ⚕️ **Disclaimer:** the CDSS is an **educational decision-support aid only** — not a
+> medical diagnosis. Every finding must be verified by a qualified clinician.
+
+---
+
+## 📑 Medical Report Generator
+
+A production-ready module that turns a completed analysis into a **durable,
+exportable medical report**. A report is a snapshot of everything the pipeline
+produced and can be re-downloaded any time as **PDF, JSON or HTML**. It is
+generated **automatically after every OCR analysis** (Requirement 9) and is also
+available through a dedicated **Medical Reports** page.
+
+### What each report contains (Requirement 2)
+
+Patient information · uploaded prescription image · OCR extracted text · medicines
+detected · confidence scores · alternative medicine matches · disease prediction ·
+drug-interaction analysis · clinical-decision summary · AI recommendations ·
+warnings · contraindications · follow-up suggestions · retrieved RAG documents ·
+sources used · processing time · timestamp.
+
+### Export formats
+
+| Format | Endpoint | Notes |
+|--------|----------|-------|
+| **PDF** | `GET /reports/{id}/pdf` | Rendered server-side with **reportlab** (pure-Python, no system deps). If reportlab is not installed the endpoint returns an actionable `503` — JSON/HTML still work. |
+| **JSON** | `GET /reports/{id}/json` | The full structured `ReportContent`. |
+| **HTML** | `GET /reports/{id}/html` | Self-contained, print-friendly document (inline CSS). Add `?download=1` to force a file download instead of inline view. |
+
+### Backend module — `backend/report_generator/`
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Pydantic contract: `ReportFormat`, `ReportContent` (+ `PatientInfo`, `ReportMedicine`, `RagDocument`), request, detail, list + stats models. |
+| `models.py` | SQLAlchemy ORM model (`ReportRecord`) with portable columns (SQLite **and** PostgreSQL); the full content lives in a JSON column, with denormalised scalars for search/stats. |
+| `report_builder.py` | **Pure** mapping: a serialised OCR result (which already carries the interaction + clinical sub-reports) → the structured `ReportContent`. No I/O. |
+| `templates.py` | **Pure** HTML rendering (stdlib `html.escape` only — no template engine) into a self-contained, styled document. |
+| `pdf_generator.py` | Server-side PDF rendering with reportlab (lazy-imported; degrades gracefully when absent). |
+| `service.py` | Async persistence + prescription-image retention + the JSON/HTML/PDF export pipeline (CPU-bound rendering runs in a worker thread). |
+| `router.py` | Async FastAPI routes under `/reports`, with logging + exception handling. |
+| `__init__.py` | Public surface: `router`, `generate_from_ocr`, `get_service`. |
+
+### API endpoints (Requirement 4)
+
+| Method & path | Description |
+|---------------|-------------|
+| `POST /reports/generate` | Build + store a report from an OCR result. Body: `{ ocr_result, filename, processing_time, source_record_id, image_data_url, persist }`. |
+| `GET /reports` | Filtered, paginated list. Query params: `q`, `patient`, `date_from`, `date_to`, `page`, `page_size`. |
+| `GET /reports/stats` | Dashboard aggregates: total, generated today, average OCR confidence, high-risk reports. |
+| `GET /reports/{id}` | Full stored report (powers the viewer). |
+| `GET /reports/{id}/image` | The retained prescription image. |
+| `GET /reports/{id}/pdf` · `/json` · `/html` | Downloadable exports. |
+| `DELETE /reports/{id}` | Delete one report (and its image). |
+| `DELETE /reports` | Clear all reports. |
+
+### Storage & database
+
+- **Default:** a local SQLite file (`backend/report_generator/reports.db`) via
+  `aiosqlite`; retained images live in `backend/report_generator/images/`.
+- **PostgreSQL (production):** set `DATABASE_URL` (or `REPORTS_DB_URL`) and install
+  `asyncpg` — no code changes.
+
+### Frontend (Requirements 6 & 7)
+
+- **Medical Reports** sidebar page (`/reports`): search, filter by patient, filter by
+  date range, paginated list, and per-report **View / PDF / JSON / HTML / Delete**.
+- **Report Viewer** (`frontend/src/ui/ReportViewer.jsx`): prescription image, OCR
+  text, medicines with confidence scores, patient info, and — by reusing the
+  existing `ClinicalReport` + `DrugInteractionReport` components — the clinical
+  decision, drug interactions, AI summary, sources and confidence.
+- **Dashboard cards:** Total Reports · Generated Today · Average OCR Confidence ·
+  High Risk Reports (from `GET /reports/stats`).
+
+### How the report-generation workflow operates
+
+1. **After OCR** (`POST /ocr/extract-prescription`): once interactions and the
+   clinical report are attached, `_attach_report(...)` runs. It builds the
+   structured `ReportContent`, **retains a copy of the prescription image** (still on
+   disk at that point), persists the report, and stamps the new `report_id` back
+   onto the OCR result. Best-effort — it can **never** break the OCR response
+   (controlled by `REPORTS_AUTO_ON_OCR`).
+2. `report_builder.build_content(...)` normalises the OCR result (medicines, fields,
+   raw text, disease prediction, interactions, clinical data, RAG notes, sources)
+   into one `ReportContent`.
+3. The **Medical Reports** page lists reports (`GET /reports` + `/stats`) and opens
+   the **Report Viewer** (`GET /reports/{id}`).
+4. Exports are rendered **on demand** from the stored content — JSON (stdlib), HTML
+   (`templates.py`), PDF (`pdf_generator.py` via reportlab) — so no large binaries
+   are stored in the database.
+5. A manual **`POST /reports/generate`** is also available for on-demand generation
+   from any OCR result payload.
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `REPORTS_DB_URL` | local SQLite (`…/reports.db`) | Report store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `REPORTS_IMAGE_DIR` | `backend/report_generator/images` | Where retained prescription images are stored. |
+| `REPORTS_AUTO_ON_OCR` | `true` | Auto-generate a report after every OCR analysis. |
+
+> ⚕️ **Disclaimer:** generated reports are AI-assisted and for educational support
+> only — always verify against the original prescription and a qualified clinician.
 
 ---
 

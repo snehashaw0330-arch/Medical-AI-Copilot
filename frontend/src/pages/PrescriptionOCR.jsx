@@ -29,6 +29,7 @@ import Accordion from '@/ui/Accordion'
 import EmptyState from '@/ui/EmptyState'
 import QualityReport from '@/ui/QualityReport'
 import DrugInteractionReport from '@/ui/DrugInteractionReport'
+import ClinicalReport from '@/ui/ClinicalReport'
 import { extractPrescription, assessImageQuality, checkInteractions } from '@/lib/api'
 import { saveReport } from '@/lib/storage'
 import { errorMessage, isCanceled, titleCase, confidenceColor, pct, freqText } from '@/lib/utils'
@@ -228,6 +229,7 @@ export default function PrescriptionOCR() {
   const [fields, setFields] = useState({})      // editable copy
   const [editing, setEditing] = useState(false)
   const [interactions, setInteractions] = useState(null)  // drug interaction report
+  const [clinical, setClinical] = useState(null)          // clinical decision report
   const [rechecking, setRechecking] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const inputRef = useRef(null)
@@ -242,6 +244,9 @@ export default function PrescriptionOCR() {
       // The backend auto-runs interaction analysis when >=2 medicines are found
       // and ships it inline on the OCR result.
       setInteractions(result.drug_interactions || null)
+      // The backend also runs clinical decision support (OCR -> matching ->
+      // interactions -> RAG -> CDSS) and ships the report inline.
+      setClinical(result.clinical_report || null)
     }
   }, [result])
 
@@ -520,6 +525,10 @@ export default function PrescriptionOCR() {
                 </div>
               </div>
             )}
+
+            {/* Clinical decision support report (auto-run after OCR). The
+                interaction card is rendered above, so it is hidden here. */}
+            {clinical && <ClinicalReport report={clinical} showInteractions={false} />}
 
             {result.doctor_notes?.length > 0 && (
               <Card>

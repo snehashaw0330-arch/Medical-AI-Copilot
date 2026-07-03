@@ -51,6 +51,82 @@ async def _attach_interactions(result: PrescriptionResult) -> None:
         logger.exception("Auto drug-interaction analysis failed (OCR unaffected)")
 
 
+def _int_or_none(value) -> int | None:
+    """Best-effort parse of an OCR'd age string ('45', '45 yrs') to an int."""
+    if value is None:
+        return None
+    import re
+
+    match = re.search(r"\d{1,3}", str(value))
+    return int(match.group()) if match else None
+
+
+async def _attach_clinical(result: PrescriptionResult) -> None:
+    """Run clinical decision support after OCR (final stage of the pipeline).
+
+    Completes the OCR -> matching -> interactions -> RAG -> CDSS flow. Reuses the
+    already-computed ``drug_interactions`` report so nothing is recomputed, and
+    feeds in the parsed patient fields (age, gender, diagnosis) for richer rules.
+
+    Best-effort and non-fatal by contract: any failure is logged and swallowed so
+    the OCR response is never blocked or broken. Controlled by CLINICAL_AUTO_ON_OCR.
+    """
+    if not settings.CLINICAL_AUTO_ON_OCR:
+        return
+    try:
+        names = [m.name for m in result.medicines if m.name]
+        if not names:
+            return
+        from backend.clinical_decision import analyze_clinical
+        from backend.clinical_decision.schemas import ClinicalAnalysisRequest
+
+        fields = result.fields
+        req = ClinicalAnalysisRequest(
+            medicines=names,
+            age=_int_or_none(fields.age),
+            gender=(fields.gender or None),
+            diagnosis=(fields.diagnosis or None),
+            include_rag=True,
+            persist=True,
+        )
+        report = await analyze_clinical(req, interaction_report=result.drug_interactions)
+        result.clinical_report = report.model_dump(mode="json")
+    except Exception:  # noqa: BLE001 — CDSS must never break OCR
+        logger.exception("Auto clinical decision support failed (OCR unaffected)")
+
+
+async def _attach_report(
+    result: PrescriptionResult,
+    image_src: str,
+    filename: str | None,
+    processing_time: float,
+) -> None:
+    """Generate + persist a comprehensive medical report after OCR (Requirement 9).
+
+    Runs last in the pipeline, once interactions and the clinical report are
+    attached, so the generated report captures the full picture. Retains a copy
+    of the prescription image (``image_src`` is still on disk at this point) and
+    stamps the new report id back onto the OCR result.
+
+    Best-effort and non-fatal by contract: any failure is logged and swallowed so
+    the OCR response is never blocked or broken. Controlled by REPORTS_AUTO_ON_OCR.
+    """
+    if not settings.REPORTS_AUTO_ON_OCR:
+        return
+    try:
+        from backend.report_generator import generate_from_ocr
+
+        report_id = await generate_from_ocr(
+            result.model_dump(mode="json"),
+            filename=filename,
+            processing_time=processing_time,
+            image_src=image_src,
+        )
+        result.report_id = report_id
+    except Exception:  # noqa: BLE001 — report generation must never break OCR
+        logger.exception("Auto medical-report generation failed (OCR unaffected)")
+
+
 @router.get("/health")
 def ocr_health() -> dict:
     """Report which engine will actually be used (after auto-resolution)."""
@@ -141,8 +217,15 @@ async def extract_prescription(
     try:
         result = run_pipeline(str(dest), provider_name=provider)
         # Automatically analyse drug interactions when multiple medicines are
-        # detected, before persisting so the OCR history captures the report too.
+        # detected, then run clinical decision support (reusing that report),
+        # before persisting so the OCR history captures both inline.
         await _attach_interactions(result)
+        await _attach_clinical(result)
+        # Generate a comprehensive medical report (retains the image, which is
+        # still on disk here) and stamp its id onto the result before persisting.
+        await _attach_report(
+            result, str(dest), file.filename, time.perf_counter() - started
+        )
         await _record(result=result)
         return result
     except RuntimeError as exc:

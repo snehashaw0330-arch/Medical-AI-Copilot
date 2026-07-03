@@ -66,6 +66,13 @@ class PrescriptionResult(BaseModel):
     # Auto-populated when >=2 medicines are detected (see ocr/router.py). Optional
     # and defaulted so older clients and non-OCR callers are unaffected.
     drug_interactions: dict[str, Any] | None = None
+    # Auto-populated clinical decision-support report (see ocr/router.py). Runs
+    # after interactions in the OCR->matching->interactions->RAG->CDSS pipeline.
+    # Optional and defaulted so older clients and non-OCR callers are unaffected.
+    clinical_report: dict[str, Any] | None = None
+    # Id of the medical report auto-generated after OCR (see ocr/router.py). The
+    # full report is retrievable at GET /reports/{id}. Optional and defaulted.
+    report_id: str | None = None
 
 
 # ==========================================================================

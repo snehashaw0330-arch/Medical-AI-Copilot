@@ -25,6 +25,12 @@ sqlalchemy[asyncio]>=2.0       # async ORM (SQLite now, PostgreSQL later)
 aiosqlite>=0.19                # async SQLite driver
 # asyncpg>=0.29                # uncomment for PostgreSQL
 
+# Medical Report Generator — backend/report_generator/
+# Server-side PDF export (JSON + HTML exports are stdlib-only). reportlab is a
+# pure-Python renderer with no system dependencies. If it is not installed, the
+# module still generates JSON/HTML and returns an actionable message for PDF.
+reportlab>=4.0                 # server-side PDF report generation
+
 # Image preprocessing
 opencv-python-headless>=4.9
 numpy>=1.26
