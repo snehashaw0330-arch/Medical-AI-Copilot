@@ -95,6 +95,31 @@ async def _attach_clinical(result: PrescriptionResult) -> None:
         logger.exception("Auto clinical decision support failed (OCR unaffected)")
 
 
+async def _attach_validation(result: PrescriptionResult) -> None:
+    """Validate the extracted prescription for safety issues (Requirement 8).
+
+    Runs after the medicines are parsed and grades the prescription for
+    duplicates, missing dosing information, unsafe abbreviations, suspicious /
+    low-confidence names and composite errors, stamping the report inline.
+
+    Best-effort and non-fatal by contract: any failure is logged and swallowed so
+    the OCR response is never blocked or broken. Controlled by
+    VALIDATION_AUTO_ON_OCR. Unlike interaction analysis, this runs even for a
+    single medicine — a lone incomplete order is still worth flagging.
+    """
+    if not settings.VALIDATION_AUTO_ON_OCR:
+        return
+    try:
+        from backend.prescription_validation import validate_from_ocr
+
+        report = await validate_from_ocr(
+            result.model_dump(mode="json"), persist=True
+        )
+        result.validation_report = report.model_dump(mode="json")
+    except Exception:  # noqa: BLE001 — validation must never break OCR
+        logger.exception("Auto prescription validation failed (OCR unaffected)")
+
+
 async def _attach_report(
     result: PrescriptionResult,
     image_src: str,
@@ -221,6 +246,10 @@ async def extract_prescription(
         # before persisting so the OCR history captures both inline.
         await _attach_interactions(result)
         await _attach_clinical(result)
+        # Validate the prescription for safety issues (duplicates, missing dosing
+        # info, unsafe abbreviations, ...) before report generation so the
+        # generated report captures it too.
+        await _attach_validation(result)
         # Generate a comprehensive medical report (retains the image, which is
         # still on disk here) and stamp its id onto the result before persisting.
         await _attach_report(

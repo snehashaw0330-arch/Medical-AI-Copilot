@@ -11,6 +11,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 - ⚠️ Drug Interaction Analysis (auto-run after OCR; severity, warnings & recommendations)
 - 🧠 Clinical Decision Support (CDSS) — risk-graded clinical reports fusing OCR, disease prediction, interactions & RAG
 - 📑 Medical Report Generator — comprehensive reports auto-generated after OCR, exportable as PDF / JSON / HTML
+- 🛡️ Prescription Validation — auto-run after OCR; scores prescription safety (0–100) and flags duplicates, missing dosing info, unsafe abbreviations & prescription errors
 - 💊 Medicine Information Search
 - 🤖 AI Medical Chat Assistant
 - 📊 Confidence-based Predictions
@@ -52,6 +53,7 @@ medical-ai-assistant/
 │   ├── drug_interactions/  # Drug Interaction Analysis (models, schemas, service, router, utils)
 │   ├── clinical_decision/  # Clinical Decision Support (rules_engine, risk_analyzer, recommendation_engine, service, ...)
 │   ├── report_generator/   # Medical Report Generator (report_builder, templates, pdf_generator, service, ...)
+│   ├── prescription_validation/  # Prescription Validation (rules, validator, service, router, models, schemas)
 │   ├── disease/        # Disease prediction
 │   ├── rag/            # Retrieval-augmented Q&A
 │   └── app.py          # FastAPI app — wires all routers
@@ -128,6 +130,7 @@ http://127.0.0.1:8000/docs
 - Drug Interaction Analysis
 - Clinical Decision Support (CDSS)
 - Medical Report Generator
+- Prescription Validation
 - Medicine Search
 - AI Chat Assistant
 
@@ -487,6 +490,90 @@ sources used · processing time · timestamp.
 
 > ⚕️ **Disclaimer:** generated reports are AI-assisted and for educational support
 > only — always verify against the original prescription and a qualified clinician.
+
+---
+
+## 🛡️ Prescription Validation
+
+A deterministic, auditable safety layer that runs **automatically after OCR** (and
+on demand for an edited medicine list). It inspects the extracted medicines and
+text, scores the prescription **0–100**, and grades it **Safe / Needs Review /
+High Risk** — with a plain-language reason and a suggested fix for every finding.
+
+### What it checks
+
+- **Duplicate medicines** — the same drug prescribed more than once.
+- **Duplicate active ingredients** — the same ingredient under different brand
+  names (e.g. *Crocin* + *Dolo* are both paracetamol), a therapeutic-duplication /
+  overdose risk.
+- **Missing dosage / frequency / duration** — incomplete dosing instructions.
+- **Unsafe abbreviations** — ISMP error-prone abbreviations (`U`, `IU`, `QD`,
+  `MSO4`, trailing/naked decimals like `1.0` or `.5`, `µg`, `cc`, `HS`, …).
+- **Suspicious medicine names** — unrecognised, gibberish or weakly-matched names.
+- **Low OCR-confidence medicines** — rows read below the confidence threshold.
+- **Potential prescription errors** — composite red flags (e.g. an order with no
+  dosage, frequency *and* duration is treated as incomplete).
+
+### Scoring & risk levels
+
+Each finding subtracts a severity-weighted penalty from a perfect 100. Any
+**high**-severity finding (or a score < 50) forces **High Risk**; any **medium**
+finding (or a score < 80) forces at least **Needs Review**; otherwise **Safe**.
+
+| Risk level | Grade | UI tone |
+|------------|-------|---------|
+| `safe` | Safe | success (green) |
+| `needs_review` | Needs Review | warning (amber) |
+| `high_risk` | High Risk | danger (red) |
+
+### Backend module — `backend/prescription_validation/`
+
+| File | Responsibility |
+|------|----------------|
+| `rules.py` | Pure safety knowledge — unsafe-abbreviation table, brand → active-ingredient map, scoring weights & normalisation helpers. |
+| `validator.py` | The deterministic checks + scoring/grading (pure, synchronous, unit-testable). |
+| `service.py` | Async orchestration + best-effort persistence; convenience `validate_from_ocr()` used by the OCR flow. |
+| `models.py` | SQLAlchemy ORM row for the validation-history store (SQLite now, PostgreSQL-ready). |
+| `schemas.py` | Pydantic request/report models — the stable frontend contract. |
+| `router.py` | Async FastAPI routes under `/validation`, with logging + exception handling. |
+
+### API endpoints
+
+| Method & path | Purpose |
+|---------------|---------|
+| `POST /validation/check` | Validate a prescription / medicine list. Body: `{ medicines, raw_text, fields, overall_confidence, persist, source_record_id }`. Returns the full `ValidationReport`. |
+| `GET /validation/history` | Paginated list of past validations (`page`, `page_size`). |
+| `GET /validation/{id}` | Full stored report for one validation. |
+| `DELETE /validation/history` | Clear stored validations. |
+
+### Frontend
+
+- A **Prescription Validation** card (`ui/PrescriptionValidationReport.jsx`) renders
+  below the OCR results with the validation score, risk level, missing information,
+  duplicate medicines, prescription warnings and suggested corrections.
+- The card is populated automatically from the OCR result's `validation_report`,
+  and a **Re-validate** button re-runs `POST /validation/check` against the edited
+  medicine list.
+
+### How the workflow operates
+
+1. OCR extracts the medicines → the pipeline calls `validate_from_ocr()`.
+2. The validator runs every check, scores + grades the prescription, and the report
+   is shipped **inline** on the OCR result (`validation_report`) and persisted.
+3. The workflow is **best-effort and non-fatal** — a validation failure is logged
+   and never blocks or breaks the OCR response.
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `VALIDATION_DB_URL` | local SQLite (`…/validation.db`) | History store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `VALIDATION_AUTO_ON_OCR` | `true` | Auto-validate after every OCR analysis. |
+| `VALIDATION_LOW_CONFIDENCE` | `0.6` | OCR row confidence below which a medicine is flagged. |
+
+> ⚕️ **Disclaimer:** automated validation is a safety aid only — always verify
+> medicines, dosages and instructions against the original prescription and a
+> licensed pharmacist/physician before dispensing.
 
 ---
 

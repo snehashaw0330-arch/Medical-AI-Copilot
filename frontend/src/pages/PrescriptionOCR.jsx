@@ -30,7 +30,8 @@ import EmptyState from '@/ui/EmptyState'
 import QualityReport from '@/ui/QualityReport'
 import DrugInteractionReport from '@/ui/DrugInteractionReport'
 import ClinicalReport from '@/ui/ClinicalReport'
-import { extractPrescription, assessImageQuality, checkInteractions } from '@/lib/api'
+import PrescriptionValidationReport from '@/ui/PrescriptionValidationReport'
+import { extractPrescription, assessImageQuality, checkInteractions, checkValidation } from '@/lib/api'
 import { saveReport } from '@/lib/storage'
 import { errorMessage, isCanceled, titleCase, confidenceColor, pct, freqText } from '@/lib/utils'
 import { generatePrescriptionPdf, readFileAsDataUrl, DISCLAIMER } from '@/lib/pdf'
@@ -230,7 +231,9 @@ export default function PrescriptionOCR() {
   const [editing, setEditing] = useState(false)
   const [interactions, setInteractions] = useState(null)  // drug interaction report
   const [clinical, setClinical] = useState(null)          // clinical decision report
+  const [validation, setValidation] = useState(null)      // prescription validation report
   const [rechecking, setRechecking] = useState(false)
+  const [revalidating, setRevalidating] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const inputRef = useRef(null)
   const cameraRef = useRef(null)
@@ -247,8 +250,34 @@ export default function PrescriptionOCR() {
       // The backend also runs clinical decision support (OCR -> matching ->
       // interactions -> RAG -> CDSS) and ships the report inline.
       setClinical(result.clinical_report || null)
+      // The backend also validates the extracted prescription (duplicates,
+      // missing dosing info, unsafe abbreviations, ...) and ships it inline.
+      setValidation(result.validation_report || null)
     }
   }, [result])
+
+  // Re-run prescription validation against the (possibly edited) medicine list.
+  const revalidate = async () => {
+    if (!meds.length) {
+      toast.error('Add at least one medicine to validate.')
+      return
+    }
+    setRevalidating(true)
+    try {
+      setValidation(
+        await checkValidation({
+          medicines: meds,
+          rawText: result?.raw_text || '',
+          fields,
+          overallConfidence: result?.overall_confidence ?? null,
+        }),
+      )
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not validate the prescription.'))
+    } finally {
+      setRevalidating(false)
+    }
+  }
 
   // Re-run interaction analysis against the (possibly edited) medicine list.
   const recheckInteractions = async () => {
@@ -503,6 +532,27 @@ export default function PrescriptionOCR() {
                 {meds.map((m, i) => (
                   <MedicineCard key={i} med={m} editing={editing} onChange={(patch) => updateMed(i, patch)} onRemove={() => removeMed(i)} />
                 ))}
+              </div>
+            )}
+
+            {/* Prescription validation (auto-run after OCR; re-runnable). Shown
+                for any prescription with at least one detected medicine. */}
+            {(validation || meds.length > 0) && (
+              <div className="space-y-3">
+                {validation ? (
+                  <PrescriptionValidationReport report={validation} />
+                ) : (
+                  <EmptyState
+                    icon={ShieldCheck}
+                    title="Validate this prescription"
+                    description="Check the detected medicines for duplicates, missing dosage or frequency, unsafe abbreviations and other prescription errors."
+                  />
+                )}
+                <div className="flex justify-end">
+                  <Button variant="secondary" size="sm" onClick={revalidate} loading={revalidating}>
+                    <RefreshCw size={15} /> {validation ? 'Re-validate' : 'Validate prescription'}
+                  </Button>
+                </div>
               </div>
             )}
 

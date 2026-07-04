@@ -73,6 +73,10 @@ class PrescriptionResult(BaseModel):
     # Id of the medical report auto-generated after OCR (see ocr/router.py). The
     # full report is retrievable at GET /reports/{id}. Optional and defaulted.
     report_id: str | None = None
+    # Auto-populated prescription-validation report (see ocr/router.py). Runs
+    # after the medicines are extracted and grades the prescription's safety.
+    # Optional and defaulted so older clients and non-OCR callers are unaffected.
+    validation_report: dict[str, Any] | None = None
 
 
 # ==========================================================================

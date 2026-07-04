@@ -151,6 +151,45 @@ class Settings:
         os.getenv("REPORTS_AUTO_ON_OCR", "true").lower() == "true"
     )
 
+    # --- Prescription Validation (backend/prescription_validation/) --------
+    # Persistent history of prescription validations. Same async URL contract as
+    # the other stores — defaults to a local SQLite file; set DATABASE_URL or
+    # VALIDATION_DB_URL to PostgreSQL in production with no code changes.
+    VALIDATION_DB_URL: str = os.getenv(
+        "VALIDATION_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/prescription_validation/validation.db')}",
+        ),
+    )
+    # Automatically validate a prescription after every successful OCR analysis.
+    # Best-effort and non-fatal by contract — a validation failure never blocks
+    # or breaks the OCR response.
+    VALIDATION_AUTO_ON_OCR: bool = (
+        os.getenv("VALIDATION_AUTO_ON_OCR", "true").lower() == "true"
+    )
+    # A medicine OCR'd below this row confidence (0..1) is flagged by the
+    # validator's low-confidence check. Defaults to the OCR MIN_CONFIDENCE.
+    VALIDATION_LOW_CONFIDENCE: float = float(
+        os.getenv("VALIDATION_LOW_CONFIDENCE", os.getenv("OCR_MIN_CONFIDENCE", "0.6"))
+    )
+
+    # --- Symptom Checker & Triage (backend/symptom_checker/) ---------------
+    # Persistent history of symptom-checker assessments. Same async URL contract
+    # as the other stores — defaults to a local SQLite file; set DATABASE_URL or
+    # SYMPTOM_DB_URL to PostgreSQL in production with no code changes.
+    SYMPTOM_DB_URL: str = os.getenv(
+        "SYMPTOM_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/symptom_checker/symptoms.db')}",
+        ),
+    )
+    # Enrich triage assessments with RAG knowledge-base evidence when available.
+    SYMPTOM_USE_RAG: bool = (
+        os.getenv("SYMPTOM_USE_RAG", "true").lower() == "true"
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

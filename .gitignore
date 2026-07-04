@@ -32,4 +32,10 @@ backend/clinical_decision/*.db
 backend/report_generator/*.db
 backend/report_generator/images/
 
+# Prescription Validation history store — local SQLite DB
+backend/prescription_validation/*.db
+
+# Symptom Checker & Triage history store — local SQLite DB
+backend/symptom_checker/*.db
+
 *.zip
