@@ -10,11 +10,13 @@ import {
   History,
   BrainCircuit,
   FileText,
+  ActivitySquare,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/predict', label: 'Disease Prediction', icon: Stethoscope },
+  { to: '/symptoms', label: 'Symptom Checker', icon: ActivitySquare },
   { to: '/ocr', label: 'Prescription OCR', icon: ScanLine },
   { to: '/clinical', label: 'Clinical Decision', icon: BrainCircuit },
   { to: '/reports', label: 'Medical Reports', icon: FileText },

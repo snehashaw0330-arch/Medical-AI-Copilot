@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import AppLayout from './layout/AppLayout'
 import Dashboard from './pages/Dashboard'
 import DiseasePrediction from './pages/DiseasePrediction'
+import SymptomChecker from './pages/SymptomChecker'
 import PrescriptionOCR from './pages/PrescriptionOCR'
 import ClinicalDecision from './pages/ClinicalDecision'
 import MedicalReports from './pages/MedicalReports'
@@ -19,6 +20,7 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="predict" element={<DiseasePrediction />} />
+        <Route path="symptoms" element={<SymptomChecker />} />
         <Route path="ocr" element={<PrescriptionOCR />} />
         <Route path="clinical" element={<ClinicalDecision />} />
         <Route path="reports" element={<MedicalReports />} />

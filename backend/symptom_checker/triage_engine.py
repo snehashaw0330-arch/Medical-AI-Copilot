@@ -94,7 +94,7 @@ DISEASE_SPECIALIST: list[tuple[str, str]] = [
 # ==========================================================================
 CATEGORY_TESTS: dict[str, list[str]] = {
     "general": ["Complete Blood Count (CBC)", "C-reactive protein (CRP)", "Blood glucose"],
-    "respiratory": ["Chest X-ray", "Pulse oximetry (SpO₂)", "Complete Blood Count (CBC)"],
+    "respiratory": ["Chest X-ray", "Pulse oximetry (SpO2)", "Complete Blood Count (CBC)"],
     "cardiovascular": ["Electrocardiogram (ECG)", "Troponin", "Lipid profile", "Blood pressure check"],
     "neurological": ["Neurological examination", "CT / MRI brain (if indicated)", "Blood glucose"],
     "gastrointestinal": ["Complete Blood Count (CBC)", "Liver function test (LFT)", "Stool examination", "Abdominal ultrasound"],

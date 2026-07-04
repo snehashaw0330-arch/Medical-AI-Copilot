@@ -5,6 +5,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 ## ✨ Features
 
 - 🧠 Disease Prediction using Machine Learning
+- 🩺 Symptom Checker & Triage — categorized symptom picker, four-level urgency, specialist routing & RAG-backed evidence
 - 📄 Handwritten Prescription OCR
 - 🔎 AI Image Quality Assessment (pre-OCR)
 - 🗂️ Prescription OCR History (persistent, searchable)
@@ -54,6 +55,7 @@ medical-ai-assistant/
 │   ├── clinical_decision/  # Clinical Decision Support (rules_engine, risk_analyzer, recommendation_engine, service, ...)
 │   ├── report_generator/   # Medical Report Generator (report_builder, templates, pdf_generator, service, ...)
 │   ├── prescription_validation/  # Prescription Validation (rules, validator, service, router, models, schemas)
+│   ├── symptom_checker/    # Symptom Checker & Triage (symptom_matcher, triage_engine, service, router, models, schemas)
 │   ├── disease/        # Disease prediction
 │   ├── rag/            # Retrieval-augmented Q&A
 │   └── app.py          # FastAPI app — wires all routers
@@ -124,6 +126,7 @@ http://127.0.0.1:8000/docs
 ## 📸 Modules
 
 - Disease Prediction
+- Symptom Checker & Triage
 - Prescription OCR
 - Image Quality Assessment
 - Prescription OCR History
@@ -574,6 +577,104 @@ finding (or a score < 80) forces at least **Needs Review**; otherwise **Safe**.
 > ⚕️ **Disclaimer:** automated validation is a safety aid only — always verify
 > medicines, dosages and instructions against the original prescription and a
 > licensed pharmacist/physician before dispensing.
+
+---
+
+## 🩺 Symptom Checker & Triage
+
+An interactive, safety-first symptom triage assistant. A user searches or picks
+symptoms from a **categorized catalog**, sets a **severity** (1–10) and
+**duration**, and gets a graded assessment that fuses the existing
+**disease-prediction model** and the **RAG knowledge base** with a deterministic
+triage engine.
+
+### What it generates (the `TriageAssessment`)
+
+- **Possible conditions** with confidence scores + reasoning (from the ML model).
+- **Severity level** — mild / moderate / severe.
+- **Urgency level** — a four-level triage grade: **Self Care → Visit Clinic →
+  Urgent Care → Emergency**.
+- **Red-flag symptoms** and a prominent **emergency warning** when warranted.
+- **Recommended specialist**, **recommended tests** and **home-care suggestions**.
+- **Evidence** — a RAG narrative + related knowledge-base documents and sources.
+
+### Urgency levels & color coding
+
+| Urgency | Grade | UI tone |
+|---------|-------|---------|
+| `self_care` | Self Care | success (green) |
+| `visit_clinic` | Visit Clinic | primary (blue) |
+| `urgent_care` | Urgent Care | warning (amber) |
+| `emergency` | Emergency | danger (red) |
+
+An **emergency red-flag** symptom (e.g. chest pain, slurred speech, coughing
+blood) forces an **Emergency** grade regardless of the numeric triage score.
+
+### Backend module — `backend/symptom_checker/`
+
+Every file created, and what it does:
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Pydantic request/response models — the stable frontend contract (`SymptomAnalysisRequest`, `TriageAssessment`, `SymptomCatalog`, history types). |
+| `symptom_matcher.py` | The **categorized symptom catalog** (nine body-system groups) + a synonym table + a fuzzy `SymptomMatcher` (exact → synonym → RapidFuzz) that resolves symptoms and reports their category. Pure & unit-testable. |
+| `triage_engine.py` | The deterministic **triage policy** (pure): red-flag detection, 0–100 triage score, urgency & severity grading, specialist routing, recommended tests, home-care advice and the emergency warning. |
+| `models.py` | SQLAlchemy ORM row for the assessment-history store (SQLite now, PostgreSQL-ready). |
+| `service.py` | **Async orchestration** — resolves symptoms, runs disease prediction (`asyncio.to_thread`) and RAG **concurrently** (`asyncio.gather`), invokes the triage engine, and persists the assessment. Best-effort integration + persistence (never raises out of `analyze`). |
+| `router.py` | Async FastAPI routes under `/symptoms`, with logging + exception handling. |
+| `__init__.py` | Public surface: `router`, `analyze_symptoms`, `get_service`. |
+
+### Symptom categories (Requirement 3)
+
+General · Respiratory · Cardiovascular · Neurological · Gastrointestinal ·
+Musculoskeletal · Skin · Urinary · Mental Health. Canonical symptom names are
+aligned with the disease-prediction vocabulary so both subsystems agree.
+
+### API endpoints
+
+| Method & path | Purpose |
+|---------------|---------|
+| `POST /symptoms/analyze` | Run a full assessment. Body: `{ symptoms, severity, duration, age, gender, include_rag, top_k, persist }`. Returns the full `TriageAssessment`. |
+| `GET /symptoms/catalog` | Categorized symptom list + duration options (powers the picker). |
+| `GET /symptoms/suggest` | Autocomplete for the symptom search box (`q`, `limit`). |
+| `GET /symptoms/history` | Paginated list of past assessments (`page`, `page_size`). |
+| `GET /symptoms/{id}` | Full stored report for one assessment. |
+| `DELETE /symptoms/history` | Clear stored assessments. |
+
+The three required endpoints — `/analyze`, `/history`, `/{id}` — are present;
+`/catalog` and `/suggest` support the frontend picker & search.
+
+### Frontend
+
+- A new **Symptom Checker** sidebar page (`/symptoms`,
+  `pages/SymptomChecker.jsx`) with symptom search + multi-select, a categorized
+  chip picker, a **severity slider**, a **duration selector**, and a
+  **Generate Assessment** action.
+- Results render the urgency grade, severity, triage score, recommended
+  specialist, red flags + emergency banner, possible conditions (with confidence
+  bars), recommended tests & home care, and the retrieved RAG documents/sources —
+  plus a persistent medical disclaimer.
+- New API helpers in `lib/api.js`: `getSymptomCatalog`, `suggestSymptomTerms`,
+  `analyzeSymptoms`, `getSymptomHistory`, `getSymptomAssessment`.
+
+### How the workflow operates
+
+1. The page loads the catalog (`GET /symptoms/catalog`) and recent history.
+2. On **Generate Assessment**, `POST /symptoms/analyze` resolves the symptoms,
+   runs disease prediction + RAG **concurrently**, applies the triage engine, and
+   **persists** the assessment (Requirement 9).
+3. Every external call is best-effort — a disease-model or RAG failure degrades
+   gracefully into `warnings` and never breaks the assessment.
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `SYMPTOM_DB_URL` | local SQLite (`…/symptoms.db`) | History store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `SYMPTOM_USE_RAG` | `true` | Enrich assessments with RAG knowledge-base evidence. |
+
+> ⚕️ **Disclaimer:** the symptom checker is an educational triage aid only — it is
+> not a diagnosis. In an emergency, call your local emergency number immediately.
 
 ---
 
