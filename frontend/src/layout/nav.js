@@ -11,6 +11,7 @@ import {
   BrainCircuit,
   FileText,
   ActivitySquare,
+  Sparkles,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
@@ -24,6 +25,7 @@ export const NAV_ITEMS = [
   { to: '/dataset', label: 'Dataset Evaluation', icon: Database },
   { to: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
   { to: '/medicine', label: 'Medicine Search', icon: Pill },
+  { to: '/recommendations', label: 'Medicine Recommendations', icon: Sparkles },
   { to: '/chat', label: 'AI Assistant', icon: MessageSquareText },
   { to: '/profile', label: 'Profile', icon: User },
 ]

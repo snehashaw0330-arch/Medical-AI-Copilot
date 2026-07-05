@@ -14,6 +14,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 - 📑 Medical Report Generator — comprehensive reports auto-generated after OCR, exportable as PDF / JSON / HTML
 - 🛡️ Prescription Validation — auto-run after OCR; scores prescription safety (0–100) and flags duplicates, missing dosing info, unsafe abbreviations & prescription errors
 - 💊 Medicine Information Search
+- ✨ Medicine Alternatives & Recommendations — generic equivalents, substitute brands, similar medicines, drug info & RAG evidence (auto-runs after OCR)
 - 🤖 AI Medical Chat Assistant
 - 📊 Confidence-based Predictions
 - 📑 Downloadable OCR Reports (PDF & JSON)
@@ -56,6 +57,7 @@ medical-ai-assistant/
 │   ├── report_generator/   # Medical Report Generator (report_builder, templates, pdf_generator, service, ...)
 │   ├── prescription_validation/  # Prescription Validation (rules, validator, service, router, models, schemas)
 │   ├── symptom_checker/    # Symptom Checker & Triage (symptom_matcher, triage_engine, service, router, models, schemas)
+│   ├── medicine_recommendation/  # Medicine Alternatives & Recommendations (alternative_finder, recommendation_engine, service, router, models, schemas)
 │   ├── disease/        # Disease prediction
 │   ├── rag/            # Retrieval-augmented Q&A
 │   └── app.py          # FastAPI app — wires all routers
@@ -135,6 +137,7 @@ http://127.0.0.1:8000/docs
 - Medical Report Generator
 - Prescription Validation
 - Medicine Search
+- Medicine Alternatives & Recommendations
 - AI Chat Assistant
 
 ---
@@ -675,6 +678,85 @@ The three required endpoints — `/analyze`, `/history`, `/{id}` — are present
 
 > ⚕️ **Disclaimer:** the symptom checker is an educational triage aid only — it is
 > not a diagnosis. In an emergency, call your local emergency number immediately.
+
+---
+
+## ✨ Medicine Alternatives & Recommendations
+
+After OCR detects the medicines on a prescription (or when a user types names on
+the dedicated page), this module retrieves full drug information and suggests
+**generic equivalents, substitute brands and similar medicines** — each with a
+plain-language reason — and enriches the harder fields from the **RAG knowledge
+base**. It **runs automatically after OCR** (Requirement 7) and is also available
+as a standalone page.
+
+### What it retrieves per medicine (Requirement 2)
+
+Generic name · Brand name · Drug class · Therapeutic category · Available
+strengths · Alternative medicines · Equivalent generic drugs · Similar medicines
+· Prescription-required (Yes/No) · Common uses · Common side effects ·
+Contraindications · Pregnancy safety · Food interactions · Storage instructions.
+
+Structured drug data (uses, side effects, substitutes, classes) comes from the
+project's existing **~248k-row medicine dataset** via the shared `MedicineIndex`;
+the evidence fields (contraindications, pregnancy, food, storage) and a grounded
+summary come from **RAG** (`amedicine_info`). Fields the dataset does not carry
+fall back to clearly-labelled, cautionary defaults — never fabricated detail.
+
+### Backend module — `backend/medicine_recommendation/`
+
+Every file created, and what it does:
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Pydantic request/response models — the stable frontend contract (`MedicineRecommendRequest`, `RecommendationReport`, `DrugInfo`, `AlternativeMedicine`, history types). |
+| `alternative_finder.py` | Bridge to the shared `MedicineIndex`: resolves a name (fuzzy match → canonical + confidence), extracts substitutes/strengths, finds **same-class similar medicines** (via a lazily-built, cached class index), and applies best-effort heuristics for prescription-required / storage. Pure & synchronous (pandas/CPU). |
+| `recommendation_engine.py` | Assembles the `DrugInfo` card, the three alternative lists **with reasons**, per-medicine summary + confidence, and the overall **AI recommendation report** (Requirement 3). Pure. |
+| `models.py` | SQLAlchemy ORM row for the recommendation-history store (SQLite now, PostgreSQL-ready). |
+| `service.py` | **Async orchestration** — resolves medicines in worker threads (`asyncio.to_thread`), enriches via RAG (best-effort), builds the report and persists it. Convenience `recommend_from_ocr()` used by the OCR flow. |
+| `router.py` | Async FastAPI routes under `/medicine`, with logging + exception handling. |
+| `__init__.py` | Public surface: `router`, `recommend_medicines`, `recommend_from_ocr`, `get_service`. |
+
+### API endpoints (Requirement 5)
+
+| Method & path | Purpose |
+|---------------|---------|
+| `POST /medicine/recommend` | Build a report. Body: `{ medicines, include_rag, max_alternatives, persist, source_record_id }`. Returns the full `RecommendationReport`. |
+| `GET /medicine/recommendations` | Paginated list of past reports (`page`, `page_size`). |
+| `GET /medicine/recommendations/{id}` | Full stored report for one recommendation. |
+| `DELETE /medicine/recommendations` | Clear stored reports. |
+
+> These live under the `/medicine` prefix and do **not** collide with the existing
+> `GET /medicine-info/{name}` Medicine-Search endpoint.
+
+### Frontend
+
+- A new **Medicine Recommendations** sidebar page (`/recommendations`,
+  `pages/MedicineRecommendations.jsx`): type medicines → get, per medicine, the
+  **detected medicine, generic equivalent, brand alternatives, similar medicines,
+  drug information, side effects, warnings, AI summary, sources and a confidence
+  score**, plus the overall AI report. Recent reports are re-openable from history.
+- New API helpers in `lib/api.js`: `recommendMedicines`,
+  `getMedicineRecommendations`, `getMedicineRecommendation`.
+
+### Automatic OCR integration (Requirement 7)
+
+`ocr/router.py` calls `_attach_recommendations()` after the medicines are
+extracted; the report is shipped **inline** on the OCR result as
+`recommendation_report` and persisted. It is **best-effort and non-fatal** — a
+failure is logged and never blocks or breaks the OCR response
+(`MEDICINE_REC_AUTO_ON_OCR` toggles it).
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `MEDICINE_REC_DB_URL` | local SQLite (`…/recommendations.db`) | History store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `MEDICINE_REC_USE_RAG` | `true` | Enrich reports with RAG knowledge-base evidence. |
+| `MEDICINE_REC_AUTO_ON_OCR` | `true` | Auto-generate a report after every OCR analysis. |
+
+> ⚕️ **Disclaimer:** suggested alternatives and generic equivalents are educational
+> only and must be substituted **only on a doctor's or pharmacist's advice**.
 
 ---
 

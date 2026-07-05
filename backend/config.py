@@ -190,6 +190,28 @@ class Settings:
         os.getenv("SYMPTOM_USE_RAG", "true").lower() == "true"
     )
 
+    # --- Medicine Recommendation (backend/medicine_recommendation/) --------
+    # Persistent history of recommendation reports. Same async URL contract as
+    # the other stores — defaults to a local SQLite file; set DATABASE_URL or
+    # MEDICINE_REC_DB_URL to PostgreSQL in production with no code changes.
+    MEDICINE_REC_DB_URL: str = os.getenv(
+        "MEDICINE_REC_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/medicine_recommendation/recommendations.db')}",
+        ),
+    )
+    # Enrich recommendation reports with RAG knowledge-base evidence when available.
+    MEDICINE_REC_USE_RAG: bool = (
+        os.getenv("MEDICINE_REC_USE_RAG", "true").lower() == "true"
+    )
+    # Automatically produce a recommendation report after every successful OCR
+    # analysis when medicines are found. Best-effort and non-fatal by contract —
+    # a recommendation failure never blocks or breaks the OCR response.
+    MEDICINE_REC_AUTO_ON_OCR: bool = (
+        os.getenv("MEDICINE_REC_AUTO_ON_OCR", "true").lower() == "true"
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

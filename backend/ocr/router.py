@@ -120,6 +120,31 @@ async def _attach_validation(result: PrescriptionResult) -> None:
         logger.exception("Auto prescription validation failed (OCR unaffected)")
 
 
+async def _attach_recommendations(result: PrescriptionResult) -> None:
+    """Retrieve medicine alternatives + drug info after OCR (Requirement 7).
+
+    For each detected medicine, resolves it against the medicine dataset and
+    finds generic equivalents, substitute brands and same-class similar medicines,
+    enriched with RAG evidence, stamping the report inline.
+
+    Best-effort and non-fatal by contract: any failure is logged and swallowed so
+    the OCR response is never blocked or broken. Controlled by
+    MEDICINE_REC_AUTO_ON_OCR.
+    """
+    if not settings.MEDICINE_REC_AUTO_ON_OCR:
+        return
+    try:
+        names = [m.name or m.raw_text for m in result.medicines if (m.name or m.raw_text)]
+        if not names:
+            return
+        from backend.medicine_recommendation import recommend_from_ocr
+
+        report = await recommend_from_ocr(result.model_dump(mode="json"), persist=True)
+        result.recommendation_report = report.model_dump(mode="json")
+    except Exception:  # noqa: BLE001 — recommendation must never break OCR
+        logger.exception("Auto medicine recommendation failed (OCR unaffected)")
+
+
 async def _attach_report(
     result: PrescriptionResult,
     image_src: str,
@@ -250,6 +275,9 @@ async def extract_prescription(
         # info, unsafe abbreviations, ...) before report generation so the
         # generated report captures it too.
         await _attach_validation(result)
+        # Retrieve medicine alternatives + drug information for each detected
+        # medicine (generic equivalents, substitute brands, similar medicines).
+        await _attach_recommendations(result)
         # Generate a comprehensive medical report (retains the image, which is
         # still on disk here) and stamp its id onto the result before persisting.
         await _attach_report(

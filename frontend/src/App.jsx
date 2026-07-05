@@ -10,6 +10,7 @@ import PrescriptionHistory from './pages/PrescriptionHistory'
 import DatasetEvaluation from './pages/DatasetEvaluation'
 import KnowledgeBase from './pages/KnowledgeBase'
 import MedicineSearch from './pages/MedicineSearch'
+import MedicineRecommendations from './pages/MedicineRecommendations'
 import Chat from './pages/Chat'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="dataset" element={<DatasetEvaluation />} />
         <Route path="knowledge" element={<KnowledgeBase />} />
         <Route path="medicine" element={<MedicineSearch />} />
+        <Route path="recommendations" element={<MedicineRecommendations />} />
         <Route path="chat" element={<Chat />} />
         <Route path="profile" element={<Profile />} />
         <Route path="*" element={<NotFound />} />

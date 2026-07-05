@@ -38,4 +38,7 @@ backend/prescription_validation/*.db
 # Symptom Checker & Triage history store — local SQLite DB
 backend/symptom_checker/*.db
 
+# Medicine Recommendation history store — local SQLite DB
+backend/medicine_recommendation/*.db
+
 *.zip

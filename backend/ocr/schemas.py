@@ -77,6 +77,10 @@ class PrescriptionResult(BaseModel):
     # after the medicines are extracted and grades the prescription's safety.
     # Optional and defaulted so older clients and non-OCR callers are unaffected.
     validation_report: dict[str, Any] | None = None
+    # Auto-populated medicine-recommendation report (see ocr/router.py). Retrieves
+    # drug info, generic/brand alternatives and similar medicines for each detected
+    # medicine. Optional and defaulted so older clients are unaffected.
+    recommendation_report: dict[str, Any] | None = None
 
 
 # ==========================================================================
