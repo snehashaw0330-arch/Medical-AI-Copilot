@@ -12,10 +12,12 @@ import {
   FileText,
   ActivitySquare,
   Sparkles,
+  Workflow,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/agents', label: 'AI Agent Monitor', icon: Workflow },
   { to: '/predict', label: 'Disease Prediction', icon: Stethoscope },
   { to: '/symptoms', label: 'Symptom Checker', icon: ActivitySquare },
   { to: '/ocr', label: 'Prescription OCR', icon: ScanLine },

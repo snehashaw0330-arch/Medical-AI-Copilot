@@ -4,6 +4,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 
 ## ✨ Features
 
+- 🤖 Multi-Agent AI Medical Copilot — nine specialised agents collaborate over an event-driven pipeline with a live monitor, shared memory & a provider-agnostic LLM layer
 - 🧠 Disease Prediction using Machine Learning
 - 🩺 Symptom Checker & Triage — categorized symptom picker, four-level urgency, specialist routing & RAG-backed evidence
 - 📄 Handwritten Prescription OCR
@@ -50,6 +51,8 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 medical-ai-assistant/
 │
 ├── backend/
+│   ├── agents/         # Multi-Agent Copilot (manager, engine, registry, event bus, memory, 9 agents)
+│   ├── llm/            # Provider-agnostic LLM layer (base + factory + OpenAI/Gemini/Claude/Ollama/DeepSeek/offline)
 │   ├── ocr/            # OCR pipeline + image quality assessment
 │   ├── history/        # OCR History module (models, schemas, service, router)
 │   ├── drug_interactions/  # Drug Interaction Analysis (models, schemas, service, router, utils)
@@ -127,6 +130,7 @@ http://127.0.0.1:8000/docs
 
 ## 📸 Modules
 
+- Multi-Agent AI Medical Copilot
 - Disease Prediction
 - Symptom Checker & Triage
 - Prescription OCR
@@ -757,6 +761,194 @@ failure is logged and never blocks or breaks the OCR response
 
 > ⚕️ **Disclaimer:** suggested alternatives and generic equivalents are educational
 > only and must be substituted **only on a doctor's or pharmacist's advice**.
+
+---
+
+## 🤖 Multi-Agent AI Medical Copilot
+
+The assistant is also a **true Agentic AI system**: instead of one monolith doing
+everything, nine **specialised agents** collaborate over an **event-driven
+pipeline**, sharing a **blackboard memory**, coordinated by a workflow engine and
+observed live from the **AI Agent Monitor** page. Crucially, the agents
+**orchestrate the existing services** (OCR, disease prediction, drug interactions,
+RAG, clinical decision support, reports) — nothing was removed or rewritten, and
+every existing API still works exactly as before.
+
+### Architecture
+
+```
+                          ┌─────────────────────────────────────────────┐
+   POST /agents/run  ───► │                AgentManager                 │  (composition root / DI)
+                          │  TaskRouter → WorkflowEngine → ContextManager│
+                          └───────────────┬─────────────────────────────┘
+                                          │ builds per-run AgentContext
+             ┌────────────────────────────┼─────────────────────────────┐
+             ▼                            ▼                              ▼
+      Shared Memory                  Event Bus                     LLM Factory
+      (blackboard)              (pub/sub, async)            (provider-agnostic, offline-safe)
+             ▲                            │                              ▲
+             │ read/write                 │ events                       │ inject
+             │                            ▼                              │
+   ┌─────────┴──────────────────────  Agents  ──────────────────────────┴────────┐
+   │ OCR → Medicine → (Disease ‖ Drug-Interaction) → Knowledge → Clinical →       │
+   │ Explainability → Report → Audit    (each delegates to an existing service)   │
+   └──────────────────────────────────┬───────────────────────────────────────────┘
+                                       │ lifecycle events
+                                       ▼
+                                   Run Store  ───►  GET /agents/runs/{id}  ───► AI Agent Monitor (live)
+```
+
+### Agent workflow (event-driven, with concurrency)
+
+```
+Prescription / symptoms / medicines
+        │
+        ▼
+   OCR Agent            → ocr_result          (image quality + OCR JSON)
+        ▼
+ Medicine Agent         → medicines           (fuzzy match, dosage, alternatives)
+        ▼
+ ┌──────────────┬────────────────────┐        ← concurrent stage (asyncio.gather)
+ Disease Agent   Drug-Interaction Agent
+ → disease       → interactions
+ └──────────────┴────────────────────┘
+        ▼
+ Knowledge Agent        → knowledge           (SOLE RAG gateway, injection-sanitised, cached)
+        ▼
+ Clinical Agent         → clinical            (recommendations, risk)
+        ▼
+ Explainability Agent   → explanation         (WHY each conclusion, with evidence)
+        ▼
+ Report Agent           → report              (PDF / JSON / HTML)
+        ▼
+ Audit Agent            → audit               (every step, timing, confidence, errors)
+```
+
+### Sequence diagram
+
+```
+Client        Router      Manager     Engine      Agent(i)     Memory     EventBus    RunStore
+  │  POST /run  │           │           │            │           │           │           │
+  │────────────►│  start_run│           │            │           │           │           │
+  │             │──────────►│  route+seed│           │           │           │  create   │
+  │             │           │───────────────────────────────────────────────────────────►│
+  │   run_id    │◄──────────│  create_task(_execute) │           │           │           │
+  │◄────────────│           │──────────►│ run(ctx,plan)          │           │           │
+  │             │           │           │  WORKFLOW_STARTED ─────────────────►│──apply───►│
+  │             │           │           │──execute──►│ process()  │           │           │
+  │             │           │           │            │──set(key)─►│           │           │
+  │             │           │           │            │  AGENT_COMPLETED ─────►│──apply───►│
+  │             │           │           │  (repeat per stage; independent agents gather)  │
+  │             │           │           │  WORKFLOW_COMPLETED ───────────────►│──apply───►│
+  │             │           │  finalize(records,result) ────────────────────────────────►│
+  │ GET /runs/{id} (poll)   │           │            │           │           │  snapshot │
+  │◄───────────────────────────────────────────────────────────────────────────────────│
+```
+
+### Folder structure & every new file
+
+**`backend/agents/`** — the agent runtime:
+
+| File | Responsibility |
+|------|----------------|
+| `agent_manager.py` | Composition root / façade. Wires all collaborators (DI), exposes `start_run` (background) + `run_and_wait`, builds the sanitised result summary. |
+| `base_agent.py` | Abstract `BaseAgent` + lifecycle wrapper: timing, event emission, timeout, error isolation, `AgentRecord`. Agents implement one `process()` method (SRP). |
+| `context_manager.py` | `AgentContext` (per-run DI bundle: memory, bus, logger, LLM, config) + `MemoryKeys` (the shared blackboard vocabulary). |
+| `memory.py` | `SharedMemory` — the async-safe blackboard agents collaborate through. |
+| `event_bus.py` | `AsyncEventBus` — pub/sub backbone; sync+async handlers, failure-isolated. |
+| `task_router.py` | Classifies the request and returns the `RoutePlan` (stages) to run. |
+| `workflow_engine.py` | Executes stages sequentially, agents **within a stage concurrently**; emits lifecycle events; computes overall confidence. |
+| `agent_registry.py` | Lazy discovery/construction of agents from specs; honours enable/disable; exposes metadata without heavy imports. |
+| `run_store.py` | In-memory live run state, updated from the event bus; powers the monitor. |
+| `logger.py` | Run-scoped structured logging. |
+| `schemas.py` | Pydantic contracts (run state, records, timeline, registry) — the frontend boundary. |
+| `security.py` | Input validation, output sanitisation, **RAG prompt-injection defence**. |
+| `router.py` | FastAPI routes under `/agents`. |
+| `config/agent_config.py` | Per-agent enable/disable + timeouts (`AGENTS_DISABLED`, `AGENT_TIMEOUT`). |
+| `config/llm_config.py` | LLM provider selection + credentials from env (`AGENT_LLM_PROVIDER`). |
+| `config/workflow_config.py` | The declarative pipeline (stages) — reshape the flow without engine changes. |
+| `implementations/*.py` | The nine agents (`ocr`, `medicine`, `disease`, `drug_interaction`, `knowledge`, `clinical`, `explainability`, `report`, `audit`) — each delegates to an existing service. |
+| `tests/test_agents.py` | Unit + integration + workflow tests (run with `python -m backend.agents.tests.test_agents`). |
+
+> **Note on `config/`:** the project already has a `backend/config.py` module, so
+> the agent config package lives at **`backend/agents/config/`** (creating a
+> top-level `backend/config/` package would shadow and break the existing
+> settings module). Same intent, non-breaking placement.
+
+**`backend/llm/`** — provider-agnostic LLM abstraction:
+
+| File | Responsibility |
+|------|----------------|
+| `base_llm.py` | Abstract `BaseLLM` (the contract every provider implements) + `LLMResponse`. |
+| `factory.py` | Config → concrete provider; `auto` picks the first available, else **offline**. |
+| `providers/offline.py` | Always-available deterministic fallback — the app runs with **no** cloud/local LLM. |
+| `providers/openai.py` | OpenAI (and base for OpenAI-compatible endpoints). |
+| `providers/deepseek.py` | DeepSeek (OpenAI-compatible — extends OpenAI, no duplicated logic). |
+| `providers/gemini.py` · `claude.py` · `ollama.py` | Google Gemini, Anthropic Claude, local Ollama (Llama/Mistral). |
+| `providers/future.py` | Documented extension template (OpenRouter, Mistral, **MCP**, on-prem). |
+
+### Agent responsibilities
+
+| Agent | Delegates to | Reads → Writes |
+|-------|--------------|----------------|
+| **OCR** | `ocr.pipeline` + image quality | `inputs` → `ocr_result` |
+| **Medicine** | `medicine_recommendation` (fuzzy match, dosage, alternatives) | `ocr_result`/`inputs` → `medicines` |
+| **Disease Prediction** | `disease.service` (scikit-learn) | `inputs` → `disease` |
+| **Drug Interaction** | `drug_interactions` | `medicines` → `interactions` |
+| **Medical Knowledge** | `rag.rag_service` — **the only RAG caller** | `medicines`,`disease` → `knowledge` |
+| **Clinical Decision** | `clinical_decision` | everything → `clinical` |
+| **Explainability** | grounded reasoning + injected LLM | all outputs → `explanation` |
+| **Report** | `report_generator` (PDF/JSON/HTML) | `ocr_result`,`clinical`,`interactions` → `report` |
+| **Audit** | the execution trail | records → `audit` |
+
+### API endpoints
+
+| Method & path | Purpose |
+|---------------|---------|
+| `POST /agents/run` | Start a run from an image and/or symptoms/medicines/text (multipart). Returns `{ run_id }` (or the final state with `?wait=true`). |
+| `GET /agents/runs/{run_id}` | Live/final run state — pipeline, timeline, logs, confidence (polled by the monitor). |
+| `GET /agents/runs` | Recent runs. |
+| `GET /agents/registry` | Agents, workflow stages and available LLM providers. |
+| `GET /agents/health` | Subsystem health. |
+
+### Frontend — AI Agent Monitor (`/agents`)
+
+An animated pipeline of the nine agent nodes (pending → running → completed /
+skipped / failed with per-agent latency + confidence), an overall progress bar,
+current-agent indicator, a **timeline** of milestones, a **result summary** and
+live **execution logs** — polled from `GET /agents/runs/{id}`.
+
+### Design principles & guarantees
+
+- **SOLID / DI** — agents depend on abstractions (`BaseAgent`, `BaseLLM`); the
+  manager injects all collaborators; adding an agent or LLM provider touches only
+  a spec/registry entry (Open-Closed).
+- **Single responsibility** — each agent knows only its own slot; they never call
+  each other, only the shared memory.
+- **Offline-first** — no cloud/local LLM required; the offline provider guarantees
+  the system runs anywhere. Configure a provider with `AGENT_LLM_PROVIDER`.
+- **Resilient** — agent failures/timeouts are isolated into the run record; the
+  pipeline always completes and degrades gracefully.
+- **Performant** — async throughout; independent agents run concurrently; RAG
+  queries are cached.
+- **Secure** — inputs validated, outputs sanitised, RAG queries defended against
+  prompt injection (the Knowledge Agent is the sole RAG gateway).
+- **Future-ready** — OpenAI · Gemini · Claude · DeepSeek · Ollama · Llama ·
+  Mistral · OpenRouter · **MCP** plug in behind `BaseLLM`; FHIR/HL7/DrugBank/
+  RxNorm/OpenFDA/WHO connectors slot in as new agents or data sources without
+  changing the engine.
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `AGENT_LLM_PROVIDER` | `auto` | `auto` \| `offline` \| `openai` \| `gemini` \| `claude` \| `deepseek` \| `ollama`. |
+| `AGENTS_DISABLED` | *(none)* | Comma-separated agent names to disable. |
+| `AGENT_TIMEOUT` | `240` | Per-agent hard timeout (seconds); generous for first-run ML cold-start. |
+| `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `OLLAMA_BASE_URL` | — | Provider credentials/endpoints (OpenAI/Gemini reuse existing keys). |
+
+> ⚕️ **Disclaimer:** the copilot is educational decision *support*, not a diagnosis;
+> all outputs must be verified by a qualified clinician.
 
 ---
 

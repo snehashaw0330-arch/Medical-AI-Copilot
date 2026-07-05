@@ -12,6 +12,7 @@ from backend.report_generator.router import router as reports_router
 from backend.prescription_validation.router import router as validation_router
 from backend.symptom_checker.router import router as symptoms_router
 from backend.medicine_recommendation.router import router as medicine_rec_router
+from backend.agents.router import router as agents_router
 
 app = FastAPI(title="Medical AI Assistant")
 
@@ -45,3 +46,4 @@ app.include_router(reports_router)   # /reports/*      (medical report generator
 app.include_router(validation_router)  # /validation/*  (prescription validation)
 app.include_router(symptoms_router)  # /symptoms/*     (symptom checker & triage)
 app.include_router(medicine_rec_router)  # /medicine/*  (medicine recommendation)
+app.include_router(agents_router)    # /agents/*       (multi-agent medical copilot)
