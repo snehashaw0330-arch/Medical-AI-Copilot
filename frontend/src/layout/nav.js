@@ -13,10 +13,12 @@ import {
   ActivitySquare,
   Sparkles,
   Workflow,
+  HeartPulse,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/digital-twin', label: 'Digital Twin', icon: HeartPulse },
   { to: '/agents', label: 'AI Agent Monitor', icon: Workflow },
   { to: '/predict', label: 'Disease Prediction', icon: Stethoscope },
   { to: '/symptoms', label: 'Symptom Checker', icon: ActivitySquare },

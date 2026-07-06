@@ -212,6 +212,24 @@ class Settings:
         os.getenv("MEDICINE_REC_AUTO_ON_OCR", "true").lower() == "true"
     )
 
+    # --- Digital Twin (backend/digital_twin/) ------------------------------
+    # Persistent per-patient twin snapshots. Same async URL contract as the other
+    # stores — defaults to a local SQLite file; set DATABASE_URL or
+    # DIGITAL_TWIN_DB_URL to PostgreSQL in production with no code changes. The
+    # twin is *derived* live from the reports store; this only caches snapshots
+    # for analytics + durability.
+    DIGITAL_TWIN_DB_URL: str = os.getenv(
+        "DIGITAL_TWIN_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/digital_twin/digital_twin.db')}",
+        ),
+    )
+    # Enrich twin recommendations with RAG knowledge-base evidence when available.
+    DIGITAL_TWIN_USE_RAG: bool = (
+        os.getenv("DIGITAL_TWIN_USE_RAG", "true").lower() == "true"
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

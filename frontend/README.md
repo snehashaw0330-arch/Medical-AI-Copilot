@@ -4,6 +4,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 
 ## ✨ Features
 
+- 🫀 Medical Digital Twin — a continuously-evolving virtual health profile per patient: health score, trend analysis, future-risk prediction, timeline & charts, aggregated from every prior analysis
 - 🤖 Multi-Agent AI Medical Copilot — nine specialised agents collaborate over an event-driven pipeline with a live monitor, shared memory & a provider-agnostic LLM layer
 - 🧠 Disease Prediction using Machine Learning
 - 🩺 Symptom Checker & Triage — categorized symptom picker, four-level urgency, specialist routing & RAG-backed evidence
@@ -51,6 +52,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 medical-ai-assistant/
 │
 ├── backend/
+│   ├── digital_twin/   # Medical Digital Twin (health_score, trend/risk/prediction/timeline engines, service, router, models, schemas)
 │   ├── agents/         # Multi-Agent Copilot (manager, engine, registry, event bus, memory, 9 agents)
 │   ├── llm/            # Provider-agnostic LLM layer (base + factory + OpenAI/Gemini/Claude/Ollama/DeepSeek/offline)
 │   ├── ocr/            # OCR pipeline + image quality assessment
@@ -130,6 +132,7 @@ http://127.0.0.1:8000/docs
 
 ## 📸 Modules
 
+- Medical Digital Twin
 - Multi-Agent AI Medical Copilot
 - Disease Prediction
 - Symptom Checker & Triage
@@ -949,6 +952,105 @@ live **execution logs** — polled from `GET /agents/runs/{id}`.
 
 > ⚕️ **Disclaimer:** the copilot is educational decision *support*, not a diagnosis;
 > all outputs must be verified by a qualified clinician.
+
+---
+
+## 🫀 Medical Digital Twin
+
+A **Digital Twin** is a continuously-evolving virtual health profile for each
+patient — one intelligent model that fuses **every** prior analysis (OCR results,
+disease predictions, medicines, drug interactions, clinical decisions and
+generated reports) into a health score, trend analysis, future-risk prediction, a
+timeline and RAG-enriched recommendations.
+
+### How it works (derived, not duplicated)
+
+The twin is **computed live** from the existing **Medical-Report store** — which
+already auto-captures each OCR analysis together with its medicines, disease
+prediction, interaction report and clinical decision. The service groups a
+patient's reports (**by patient name → a stable `patient_id` slug**), folds them
+oldest→newest through the pure engines, and persists a **snapshot** per patient
+(for analytics + durability). Nothing existing is modified — the reports DB is read
+**read-only**.
+
+```
+ Reports store (per patient, chronological)
+        │  _to_encounter()  → compact encounter series
+        ▼
+ ┌───────────────┬──────────────┬─────────────┬────────────────┬───────────────┐
+ health_score    trend_engine    risk_engine   prediction_eng.   timeline_engine
+ (0–100 + 6      (improving/      (low→critical (next-visit       (health journey
+  factors)        stable/          future risk)  forecast)         milestones)
+                  worsening)
+ └───────────────┴──────────────┴─────────────┴────────────────┴───────────────┘
+        │                          + RAG evidence (recommendations)
+        ▼
+   DigitalTwin  ──►  snapshot upsert (DIGITAL_TWIN_DB_URL)  ──►  analytics
+```
+
+### Health score (0–100) — six weighted factors
+
+Medicine adherence *(regimen-continuity proxy)* · risk level · disease
+progression · drug interactions · prediction confidence · clinical warnings. Each
+is a 0–100 sub-score; the weighted blend is the overall score, computed **per
+encounter** to produce the Health-Score-Timeline chart.
+
+### Trend analysis & risk
+
+Every tracked metric is classified **improving / stable / worsening** via a
+least-squares slope with a polarity-aware dead-band: Health-Score, Disease,
+Medicine (adherence), OCR-Confidence and Risk trends. The **risk engine** predicts
+future risk on a four-level scale (**low / medium / high / critical**) from the
+latest clinical + interaction state, nudged by the health trajectory, with
+human-readable drivers. The **prediction engine** forecasts the next-visit health
+score + risk.
+
+### Backend module — `backend/digital_twin/`
+
+Every file created, and what it does:
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Pydantic contracts — `DigitalTwin`, `TrendResult`, `RiskAssessment`, `Prediction`, timeline/medicine/disease history, analytics (the frontend boundary). |
+| `models.py` | SQLAlchemy ORM `TwinSnapshot` (one upserted snapshot per patient; SQLite now, PostgreSQL-ready). |
+| `health_score.py` | The 0–100 score + six-factor breakdown + per-encounter series (pure). |
+| `trend_engine.py` | Least-squares slope → improving/stable/worsening + chart series (pure). |
+| `risk_engine.py` | Future-risk prediction (low→critical) with drivers (pure). |
+| `prediction_engine.py` | Short-horizon forecast of the next health score + risk (pure). |
+| `timeline_engine.py` | Chronological health-journey events (reports, new medicines, high-risk flags) (pure). |
+| `service.py` | Aggregates the reports store by patient, runs the engines, enriches via RAG, persists snapshots; analytics + recalculation (async). |
+| `router.py` | Async FastAPI routes under `/digital-twin`. |
+| `__init__.py` | Public surface: `router`, `get_service`. |
+
+### API endpoints
+
+| Method & path | Purpose |
+|---------------|---------|
+| `GET  /digital-twin/{patientId}` | The full, live Digital Twin (computed fresh + snapshot saved). |
+| `GET  /digital-twin/analytics` | Population-level analytics across all patients' snapshots. |
+| `POST /digital-twin/recalculate` | Recompute one patient (`{ "patient_id": "..." }`) or **all** patients. |
+| `GET  /digital-twin/patients` | Patients with data (drives the UI picker). |
+
+### Frontend — Digital Twin page (`/digital-twin`)
+
+A patient picker + **Recalculate** action, a circular **health-score gauge** with
+its status, a segmented **risk meter**, the six score-factor bars, a **forecast**
+card, five **recharts** trend charts (Health-Score, Risk, OCR-Confidence, Disease,
+Medicine), **medicine history** (active/past), **disease progress**, a vertical
+**timeline**, the **AI summary**, RAG-backed **recommendations** and **evidence**.
+New API helpers: `getDigitalTwin`, `getDigitalTwinPatients`,
+`getDigitalTwinAnalytics`, `recalculateDigitalTwin`.
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `DIGITAL_TWIN_DB_URL` | local SQLite (`…/digital_twin.db`) | Snapshot store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `DIGITAL_TWIN_USE_RAG` | `true` | Enrich twin recommendations with RAG evidence. |
+
+> ⚕️ **Disclaimer:** the Digital Twin is an automated, aggregated view for
+> educational support only — not a diagnosis or a medical record. All values must
+> be verified by a qualified clinician.
 
 ---
 

@@ -12,6 +12,7 @@ import KnowledgeBase from './pages/KnowledgeBase'
 import MedicineSearch from './pages/MedicineSearch'
 import MedicineRecommendations from './pages/MedicineRecommendations'
 import AgentMonitor from './pages/AgentMonitor'
+import DigitalTwin from './pages/DigitalTwin'
 import Chat from './pages/Chat'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="medicine" element={<MedicineSearch />} />
         <Route path="recommendations" element={<MedicineRecommendations />} />
         <Route path="agents" element={<AgentMonitor />} />
+        <Route path="digital-twin" element={<DigitalTwin />} />
         <Route path="chat" element={<Chat />} />
         <Route path="profile" element={<Profile />} />
         <Route path="*" element={<NotFound />} />

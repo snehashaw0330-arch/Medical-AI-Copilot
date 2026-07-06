@@ -41,4 +41,7 @@ backend/symptom_checker/*.db
 # Medicine Recommendation history store — local SQLite DB
 backend/medicine_recommendation/*.db
 
+# Digital Twin snapshot store — local SQLite DB
+backend/digital_twin/*.db
+
 *.zip
