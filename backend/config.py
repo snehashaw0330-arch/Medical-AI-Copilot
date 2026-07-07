@@ -230,6 +230,29 @@ class Settings:
         os.getenv("DIGITAL_TWIN_USE_RAG", "true").lower() == "true"
     )
 
+    # --- AI Governance, Audit & Explainability (backend/ai_governance/) -----
+    # Persistent store of AI decision traces, audit logs and the model/dataset
+    # registries. Same async URL contract as every other store — defaults to a
+    # local SQLite file; set DATABASE_URL or AI_GOVERNANCE_DB_URL to PostgreSQL in
+    # production with no code changes.
+    AI_GOVERNANCE_DB_URL: str = os.getenv(
+        "AI_GOVERNANCE_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/ai_governance/governance.db')}",
+        ),
+    )
+    # Log every API request to the audit store via non-blocking background writes.
+    GOVERNANCE_AUDIT_REQUESTS: bool = (
+        os.getenv("GOVERNANCE_AUDIT_REQUESTS", "true").lower() == "true"
+    )
+    # Capture a live AI decision trace after every successful OCR analysis.
+    # Best-effort and non-fatal by contract — a governance failure never blocks
+    # or breaks the OCR response.
+    GOVERNANCE_AUTO_ON_OCR: bool = (
+        os.getenv("GOVERNANCE_AUTO_ON_OCR", "true").lower() == "true"
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

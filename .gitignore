@@ -44,4 +44,7 @@ backend/medicine_recommendation/*.db
 # Digital Twin snapshot store — local SQLite DB
 backend/digital_twin/*.db
 
+# AI Governance store (decision traces, audit logs, registries) — local SQLite DB
+backend/ai_governance/*.db
+
 *.zip

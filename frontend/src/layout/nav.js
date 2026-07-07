@@ -14,11 +14,21 @@ import {
   Sparkles,
   Workflow,
   HeartPulse,
+  ShieldCheck,
+  Boxes,
+  ScrollText,
+  Layers,
+  Network,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/digital-twin', label: 'Digital Twin', icon: HeartPulse },
+  { to: '/governance', label: 'AI Governance', icon: ShieldCheck, end: true },
+  { to: '/governance/pipeline', label: 'Pipeline Viewer', icon: Network },
+  { to: '/governance/models', label: 'Model Registry', icon: Boxes },
+  { to: '/governance/datasets', label: 'Dataset Registry', icon: Layers },
+  { to: '/governance/audit-logs', label: 'Audit Logs', icon: ScrollText },
   { to: '/agents', label: 'AI Agent Monitor', icon: Workflow },
   { to: '/predict', label: 'Disease Prediction', icon: Stethoscope },
   { to: '/symptoms', label: 'Symptom Checker', icon: ActivitySquare },

@@ -177,6 +177,35 @@ async def _attach_report(
         logger.exception("Auto medical-report generation failed (OCR unaffected)")
 
 
+async def _attach_governance(
+    result: PrescriptionResult, processing_time: float
+) -> None:
+    """Capture a governed AI decision trace after OCR (Governance module).
+
+    Records the full, reproducible decision (OCR, medicines, disease prediction,
+    interactions, clinical decision, RAG documents, prompt, recommendation,
+    execution time and pinned versions) so it appears in the AI Governance
+    dashboard, decision search, explainability and pipeline views.
+
+    Best-effort and non-fatal by contract: any failure is logged and swallowed so
+    the OCR response is never blocked or broken. Controlled by GOVERNANCE_AUTO_ON_OCR.
+    """
+    if not settings.GOVERNANCE_AUTO_ON_OCR:
+        return
+    try:
+        from backend.ai_governance import record_trace_from_ocr
+
+        # The result already carries its report_id (stamped by _attach_report);
+        # record_trace_from_ocr links the trace to that report for idempotency.
+        await record_trace_from_ocr(
+            result.model_dump(mode="json"),
+            processing_time=processing_time,
+            source_report_id=getattr(result, "report_id", None),
+        )
+    except Exception:  # noqa: BLE001 — governance must never break OCR
+        logger.exception("Auto governance trace capture failed (OCR unaffected)")
+
+
 @router.get("/health")
 def ocr_health() -> dict:
     """Report which engine will actually be used (after auto-resolution)."""
@@ -283,6 +312,9 @@ async def extract_prescription(
         await _attach_report(
             result, str(dest), file.filename, time.perf_counter() - started
         )
+        # Capture a governed, reproducible AI decision trace for the analysis
+        # (audit + explainability). Best-effort — never blocks the OCR response.
+        await _attach_governance(result, time.perf_counter() - started)
         await _record(result=result)
         return result
     except RuntimeError as exc:

@@ -13,6 +13,11 @@ import MedicineSearch from './pages/MedicineSearch'
 import MedicineRecommendations from './pages/MedicineRecommendations'
 import AgentMonitor from './pages/AgentMonitor'
 import DigitalTwin from './pages/DigitalTwin'
+import AIGovernance from './pages/AIGovernance'
+import ModelRegistry from './pages/ModelRegistry'
+import DatasetRegistry from './pages/DatasetRegistry'
+import AuditLogs from './pages/AuditLogs'
+import PipelineViewer from './pages/PipelineViewer'
 import Chat from './pages/Chat'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
@@ -34,6 +39,11 @@ export default function App() {
         <Route path="recommendations" element={<MedicineRecommendations />} />
         <Route path="agents" element={<AgentMonitor />} />
         <Route path="digital-twin" element={<DigitalTwin />} />
+        <Route path="governance" element={<AIGovernance />} />
+        <Route path="governance/models" element={<ModelRegistry />} />
+        <Route path="governance/datasets" element={<DatasetRegistry />} />
+        <Route path="governance/audit-logs" element={<AuditLogs />} />
+        <Route path="governance/pipeline" element={<PipelineViewer />} />
         <Route path="chat" element={<Chat />} />
         <Route path="profile" element={<Profile />} />
         <Route path="*" element={<NotFound />} />

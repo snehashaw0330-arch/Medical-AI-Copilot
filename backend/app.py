@@ -14,6 +14,9 @@ from backend.symptom_checker.router import router as symptoms_router
 from backend.medicine_recommendation.router import router as medicine_rec_router
 from backend.agents.router import router as agents_router
 from backend.digital_twin.router import router as digital_twin_router
+from backend.ai_governance import AuditMiddleware, get_service
+from backend.ai_governance.router import router as governance_router
+from backend.config import settings
 
 app = FastAPI(title="Medical AI Assistant")
 
@@ -24,6 +27,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# AI Governance audit trail: log every API request in the background (best-effort,
+# non-blocking). Added after CORS so it observes the whole application without
+# altering any existing route. Toggle via GOVERNANCE_AUDIT_REQUESTS.
+if settings.GOVERNANCE_AUDIT_REQUESTS:
+    app.add_middleware(AuditMiddleware, audit_logger=get_service().audit)
 
 
 @app.get("/")
@@ -49,3 +58,4 @@ app.include_router(symptoms_router)  # /symptoms/*     (symptom checker & triage
 app.include_router(medicine_rec_router)  # /medicine/*  (medicine recommendation)
 app.include_router(agents_router)    # /agents/*       (multi-agent medical copilot)
 app.include_router(digital_twin_router)  # /digital-twin/* (patient digital twin)
+app.include_router(governance_router)    # /governance/*   (AI audit + explainability)

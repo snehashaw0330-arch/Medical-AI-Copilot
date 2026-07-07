@@ -4,6 +4,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 
 ## ✨ Features
 
+- 🛡️ Clinical AI Audit, Explainability & Governance — every AI decision is explainable, traceable, auditable, reproducible & versioned: decision traces, an explainability engine, confidence/reliability analysis, a visual pipeline view, immutable audit logs, model & dataset registries, version tracking and CSV/JSON/PDF export
 - 🫀 Medical Digital Twin — a continuously-evolving virtual health profile per patient: health score, trend analysis, future-risk prediction, timeline & charts, aggregated from every prior analysis
 - 🤖 Multi-Agent AI Medical Copilot — nine specialised agents collaborate over an event-driven pipeline with a live monitor, shared memory & a provider-agnostic LLM layer
 - 🧠 Disease Prediction using Machine Learning
@@ -52,6 +53,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 medical-ai-assistant/
 │
 ├── backend/
+│   ├── ai_governance/  # Clinical AI Audit, Explainability & Governance (decision_tracker, explanation_engine, confidence_analyzer, pipeline_tracker, audit_logger, model_registry, dataset_registry, version_manager, service, router, models, schemas)
 │   ├── digital_twin/   # Medical Digital Twin (health_score, trend/risk/prediction/timeline engines, service, router, models, schemas)
 │   ├── agents/         # Multi-Agent Copilot (manager, engine, registry, event bus, memory, 9 agents)
 │   ├── llm/            # Provider-agnostic LLM layer (base + factory + OpenAI/Gemini/Claude/Ollama/DeepSeek/offline)
@@ -132,6 +134,7 @@ http://127.0.0.1:8000/docs
 
 ## 📸 Modules
 
+- Clinical AI Audit, Explainability & Governance
 - Medical Digital Twin
 - Multi-Agent AI Medical Copilot
 - Disease Prediction
@@ -1051,6 +1054,207 @@ New API helpers: `getDigitalTwin`, `getDigitalTwinPatients`,
 > ⚕️ **Disclaimer:** the Digital Twin is an automated, aggregated view for
 > educational support only — not a diagnosis or a medical record. All values must
 > be verified by a qualified clinician.
+
+---
+
+## 🛡️ Clinical AI Audit, Explainability & Governance
+
+An **enterprise-grade AI governance layer** that makes every AI decision in the
+platform **explainable, traceable, auditable, reproducible and versioned** — the
+difference between a demo and a system a healthcare organisation could actually
+run. It is strictly **additive**: it reads the existing Medical-Report store
+read-only, owns its own database, and changes no existing route or behaviour.
+
+### How it fits in (non-invasive by design)
+
+The governance layer **derives** its data rather than duplicating it. Every OCR
+analysis already flows through OCR → Medicine Matching → Disease Prediction →
+Drug Interaction → RAG → Clinical Decision → Report. The tracker captures that as
+a single **reproducible decision trace** — live (a best-effort hook after OCR)
+and by **backfilling** the existing report store — then the pure engines explain
+it, score its confidence and render its pipeline.
+
+```
+                        ┌─────────────────────────────────────────────┐
+   Existing pipeline    │  OCR → Matching → Disease → Interactions →   │
+   (unchanged)          │  RAG → Clinical Decision → Medical Report    │
+                        └───────────────┬─────────────────────────────┘
+                                        │ read-only + best-effort hook
+                                        ▼
+              ┌──────────────────────────────────────────────────┐
+              │              backend/ai_governance/              │
+              │                                                  │
+              │  decision_tracker ──► ai_decision_traces (DB)    │
+              │        │                                         │
+              │        ├──► explanation_engine   (the "why")     │
+              │        ├──► confidence_analyzer  (reliability)   │
+              │        └──► pipeline_tracker     (visual flow)   │
+              │                                                  │
+              │  audit_logger ──────► audit_logs (DB)  ◄── ASGI  │
+              │  model_registry ────► model_registry (DB)  middleware
+              │  dataset_registry ──► dataset_registry (DB)      │
+              │  version_manager ───► pinned component versions  │
+              │                                                  │
+              │  service (DI composition root) ──► router        │
+              └───────────────────────┬──────────────────────────┘
+                                      ▼
+        Frontend: AI Governance · Pipeline Viewer · Model Registry ·
+                  Dataset Registry · Audit Logs
+```
+
+### Architecture (SOLID + Dependency Injection)
+
+The `service.py` is a **composition root**: it owns no persistence of its own and
+instead injects focused collaborators, each testable in isolation.
+
+| Component | Responsibility |
+|-----------|----------------|
+| `decision_tracker.py` | Build/persist/search reproducible **decision traces**; backfill from reports; dashboard aggregation |
+| `explanation_engine.py` | Pure engine — the **"why"** behind every sub-decision (OCR word, medicine match, disease chosen/rejected, interaction flagged, RAG doc, recommendation) |
+| `confidence_analyzer.py` | Pure engine — **reliability, calibration, evidence strength, model uncertainty, missing information** |
+| `pipeline_tracker.py` | Pure engine — the 8-step **visual pipeline** with per-step time / status / confidence / warnings |
+| `audit_logger.py` | Immutable **audit log** of every API request (background, non-blocking) + ASGI middleware + PHI masking |
+| `model_registry.py` | Registry of every AI **model** (name, version, accuracy, training date, dataset, status) — seeded with the shipped models |
+| `dataset_registry.py` | Registry of every **dataset** (version, source, size, date added, purpose) — seeded with the shipped datasets |
+| `version_manager.py` | Single source of truth for **model / dataset / prompt / pipeline / RAG-index** versions (env-overridable) |
+| `service.py` / `router.py` | DI composition root + async FastAPI routes |
+| `models.py` / `schemas.py` | SQLAlchemy ORM (4 portable tables) + Pydantic v2 contracts |
+
+### AI Decision Trace (what is stored for every prediction)
+
+Timestamp · Patient ID · OCR result & provider · Medicines (+ candidates) ·
+Disease prediction · Confidence · Drug interaction · Clinical decision · RAG
+documents retrieved · Prompt used · Retrieved chunks · Final recommendation ·
+Execution time · Model / Dataset / Pipeline / Prompt / RAG-index versions ·
+Status & warnings.
+
+### Sequence — capturing & explaining a decision
+
+```
+User        OCR Router      Governance         Engines            DB
+ │  upload      │               │                  │               │
+ ├─────────────►│ run pipeline  │                  │               │
+ │              ├──(OCR→…→Report)                   │               │
+ │              ├─ record_trace_from_ocr ──────────►│ derive trace  │
+ │              │               ├─ _save ──────────────────────────►│
+ │◄─ response ──┤ (never blocked by governance)     │               │
+ │                              │                   │               │
+ │  GET /governance/decisions/{id}/explanation      │               │
+ ├─────────────────────────────►│ get trace ───────────────────────►│
+ │                              │◄── trace ─────────────────────────┤
+ │                              ├─ explain(trace) ─►│               │
+ │◄──── ExplanationReport ──────┤                   │               │
+```
+
+### AI Pipeline view
+
+```
+Image Upload → OCR → Medicine Matching → Disease Prediction →
+Drug Interaction → RAG Retrieval → Clinical Decision → Report Generation
+```
+
+Each step reports **execution time, status (completed / warning / skipped /
+failed), confidence and warnings**. The Pipeline Viewer renders this as a visual
+workflow of connected step cards.
+
+### Governance workflow
+
+```
+Analyse (or Sync)  ──►  Trace stored + versioned  ──►  Dashboard KPIs
+        │                                                    │
+        └──► Search (patient / medicine / disease / version / date)
+                        │
+                        └──► Drill-down: Explainability + Confidence + Pipeline
+                                        │
+                                        └──► Export (CSV / JSON / PDF)
+```
+
+### Audit workflow
+
+```
+Every API request ─► ASGI AuditMiddleware ─► asyncio.create_task (fire-and-forget)
+                                                     │ PHI-masked
+                                                     ▼
+                                         audit_logs table (background write)
+                                                     │
+                              Audit Logs page  ◄──────┘  + CSV / JSON / PDF export
+```
+
+Auditing is **non-blocking**: a logging failure can never break or slow the
+request being audited.
+
+### Explainability workflow
+
+For any trace, `explanation_engine` derives grounded rationales — every "why"
+points back at concrete numbers (match scores, prediction probabilities,
+retrieval similarity) so it is reproducible:
+
+```
+Trace ─► Why OCR read a word (row confidence)
+      ─► Why a medicine was matched (top vs runner-up score)
+      ─► Why a disease was chosen (highest probability, margin over next)
+      ─► Why another disease was rejected (lower probability)
+      ─► Why an interaction was flagged (severity + mechanism)
+      ─► Why each RAG document was retrieved (semantic similarity)
+      ─► Why the final recommendation was generated (grounded-in sources)
+```
+
+### API endpoints
+
+| Method & path | Description |
+|---------------|-------------|
+| `GET  /governance/dashboard` | KPIs: total decisions, avg confidence, avg time, failed, audit failures, low-confidence, most-common diseases/medicines |
+| `GET  /governance/versions` | Pinned model / dataset / prompt / pipeline / RAG-index versions |
+| `POST /governance/sync` | Backfill decision traces from the report store (idempotent) |
+| `GET  /governance/decisions` | Search traces (patient, medicine, disease, prediction, status, model/dataset version, confidence, date) |
+| `GET  /governance/decisions/export?fmt=csv\|json\|pdf` | Export decision traces |
+| `GET  /governance/decisions/{trace_id}` | Full, reproducible decision trace |
+| `GET  /governance/decisions/{trace_id}/explanation` | Explainability report |
+| `GET  /governance/decisions/{trace_id}/confidence` | Confidence / reliability / calibration analysis |
+| `GET  /governance/decisions/{trace_id}/pipeline` | Per-step pipeline view |
+| `GET  /governance/audit-logs` | Search the immutable audit log |
+| `GET  /governance/audit-logs/export?fmt=csv\|json\|pdf` | Export audit logs |
+| `GET  /governance/models` · `POST /governance/models` | Model registry (list / register-update) |
+| `GET  /governance/datasets` · `POST /governance/datasets` | Dataset registry (list / register-update) |
+
+### Frontend — five new pages
+
+- **AI Governance** (`/governance`) — dashboard KPIs, versions, decisions-over-time chart, most-common diseases/medicines, searchable decision table with an explainability + confidence drill-down drawer.
+- **Pipeline Viewer** (`/governance/pipeline`) — the visual 8-step workflow for any decision (time / status / confidence / warnings).
+- **Model Registry** (`/governance/models`) — every model with accuracy & lifecycle status; register new versions.
+- **Dataset Registry** (`/governance/datasets`) — every dataset with source, size & purpose; register new versions.
+- **Audit Logs** (`/governance/audit-logs`) — searchable request log with CSV / JSON / PDF export.
+
+### Performance & security
+
+- **Async** FastAPI throughout; the reports store is read through a dedicated read-only async engine.
+- **Background logging** — audit writes are fire-and-forget (`asyncio.create_task`), never blocking a response.
+- **Idempotent** backfill + lazy first-read auto-sync so the dashboard is populated without new OCR runs.
+- **Sensitive-data masking** — emails, phone numbers and long identifiers are redacted from audit prompts/sources/errors before persistence and export; names can be reduced to initials.
+- **Input validation** (Pydantic v2 + typed query params) and **actionable error handling** on every route.
+
+### Configuration (all optional — sensible defaults)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AI_GOVERNANCE_DB_URL` | local SQLite | Governance store (traces, audit logs, registries). Set to PostgreSQL in prod. |
+| `GOVERNANCE_AUDIT_REQUESTS` | `true` | Log every API request via the audit middleware. |
+| `GOVERNANCE_AUTO_ON_OCR` | `true` | Capture a live decision trace after each OCR analysis. |
+| `GOV_MODEL_VERSION`, `GOV_DATASET_VERSION`, `GOV_PROMPT_VERSION`, `GOV_PIPELINE_VERSION`, `GOV_RAG_INDEX_VERSION`, … | descriptive defaults | Pin exact component versions without a code deploy. |
+
+### Future roadmap
+
+- Bias / fairness monitoring and drift detection across model versions
+- Human-in-the-loop review queue with sign-off + override capture on decisions
+- Role-based access control and authenticated per-user audit identity
+- Cryptographic hash-chaining of audit rows for tamper-evidence
+- SHAP / attention-based token attributions layered onto the explanation engine
+- Scheduled compliance exports (HIPAA / GDPR) and configurable retention policies
+
+> ⚕️ **Disclaimer:** the governance layer observes and explains AI behaviour for
+> transparency and oversight — it does not itself make clinical decisions. All AI
+> output remains educational decision-support only and must be verified by a
+> qualified clinician.
 
 ---
 
