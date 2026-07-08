@@ -19,6 +19,7 @@ import {
   ScrollText,
   Layers,
   Network,
+  Waypoints,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
@@ -34,6 +35,7 @@ export const NAV_ITEMS = [
   { to: '/symptoms', label: 'Symptom Checker', icon: ActivitySquare },
   { to: '/ocr', label: 'Prescription OCR', icon: ScanLine },
   { to: '/clinical', label: 'Clinical Decision', icon: BrainCircuit },
+  { to: '/reasoning', label: 'Clinical Reasoning', icon: Waypoints },
   { to: '/reports', label: 'Medical Reports', icon: FileText },
   { to: '/history', label: 'Prescription History', icon: History },
   { to: '/dataset', label: 'Dataset Evaluation', icon: Database },

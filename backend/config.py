@@ -253,6 +253,43 @@ class Settings:
         os.getenv("GOVERNANCE_AUTO_ON_OCR", "true").lower() == "true"
     )
 
+    # --- Clinical Reasoning Platform (backend/clinical_reasoning/) ---------
+    # Enterprise, step-by-step AI clinical reasoning that chains every existing
+    # subsystem (OCR -> medicine detection/validation -> interactions -> disease
+    # prediction -> RAG evidence -> clinical rules -> differential -> confidence
+    # -> recommendation) and shows its full work. All flags are best-effort and
+    # non-fatal by contract — a failure in any stage degrades that stage only.
+    # Persistent history of reasoning reports. Same async URL contract as the
+    # other stores — defaults to a local SQLite file; set DATABASE_URL or
+    # CLINICAL_REASONING_DB_URL to PostgreSQL in production with no code changes.
+    CLINICAL_REASONING_DB_URL: str = os.getenv(
+        "CLINICAL_REASONING_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/clinical_reasoning/reasoning.db')}",
+        ),
+    )
+    CLINICAL_REASONING_USE_RAG: bool = (
+        os.getenv("CLINICAL_REASONING_USE_RAG", "true").lower() == "true"
+    )
+    # Run disease prediction from symptoms inside the reasoning pipeline.
+    CLINICAL_REASONING_PREDICT_DISEASE: bool = (
+        os.getenv("CLINICAL_REASONING_PREDICT_DISEASE", "true").lower() == "true"
+    )
+    # Number of differential diagnoses to consider (leading + alternatives).
+    CLINICAL_REASONING_TOP_K: int = int(
+        os.getenv("CLINICAL_REASONING_TOP_K", "5")
+    )
+    # In-memory cache of reasoning reports (keyed by a hash of the inputs). The
+    # pipeline fans out to slow subsystems (disease model, RAG), so identical
+    # re-runs are served from cache within the TTL. Set TTL to 0 to disable.
+    CLINICAL_REASONING_CACHE_TTL: int = int(
+        os.getenv("CLINICAL_REASONING_CACHE_TTL", "600")  # seconds
+    )
+    CLINICAL_REASONING_CACHE_SIZE: int = int(
+        os.getenv("CLINICAL_REASONING_CACHE_SIZE", "128")  # max cached reports
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

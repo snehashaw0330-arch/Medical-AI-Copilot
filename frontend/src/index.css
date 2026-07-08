@@ -148,6 +148,62 @@ body {
   animation: shimmer 1.4s infinite;
 }
 
+/* ---------- Clinical Reasoning pipeline ---------- */
+/* Flowing dash along a connector while a step is running. */
+@keyframes reasoning-flow {
+  to {
+    background-position: 200% 0;
+  }
+}
+.reasoning-flow {
+  background-image: linear-gradient(
+    90deg,
+    var(--primary) 0%,
+    color-mix(in srgb, var(--primary) 25%, transparent) 50%,
+    var(--primary) 100%
+  );
+  background-size: 200% 100%;
+  animation: reasoning-flow 1.1s linear infinite;
+}
+/* Pulsing halo on the active reasoning node. */
+@keyframes reasoning-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+}
+.reasoning-pulse {
+  animation: reasoning-pulse 1.4s ease-out infinite;
+}
+/* Staggered reveal for a chain of nodes. */
+@keyframes reasoning-node-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.reasoning-node-in {
+  animation: reasoning-node-in 0.35s ease both;
+}
+/* Meter needle / fill sweep. */
+@keyframes meter-fill {
+  from {
+    width: 0;
+  }
+}
+.meter-fill {
+  animation: meter-fill 0.9s ease-out both;
+}
+
 /* Typing dots for chat */
 @keyframes blink {
   0%,

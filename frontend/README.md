@@ -14,6 +14,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 - 🗂️ Prescription OCR History (persistent, searchable)
 - ⚠️ Drug Interaction Analysis (auto-run after OCR; severity, warnings & recommendations)
 - 🧠 Clinical Decision Support (CDSS) — risk-graded clinical reports fusing OCR, disease prediction, interactions & RAG
+- 🧩 AI Clinical Reasoning Platform — instead of answering directly, the AI reasons **step by step** and shows all of its work: an animated reasoning pipeline, a weighted confidence breakdown, a differential with explicit rejection reasons, evidence cards and a full Clinical Reasoning Report
 - 📑 Medical Report Generator — comprehensive reports auto-generated after OCR, exportable as PDF / JSON / HTML
 - 🛡️ Prescription Validation — auto-run after OCR; scores prescription safety (0–100) and flags duplicates, missing dosing info, unsafe abbreviations & prescription errors
 - 💊 Medicine Information Search
@@ -61,6 +62,7 @@ medical-ai-assistant/
 │   ├── history/        # OCR History module (models, schemas, service, router)
 │   ├── drug_interactions/  # Drug Interaction Analysis (models, schemas, service, router, utils)
 │   ├── clinical_decision/  # Clinical Decision Support (rules_engine, risk_analyzer, recommendation_engine, service, ...)
+│   ├── clinical_reasoning/ # AI Clinical Reasoning Platform (reasoning_engine, evidence_engine, confidence_engine, recommendation_engine, medical_rules, explanation_engine, service, router, schemas)
 │   ├── report_generator/   # Medical Report Generator (report_builder, templates, pdf_generator, service, ...)
 │   ├── prescription_validation/  # Prescription Validation (rules, validator, service, router, models, schemas)
 │   ├── symptom_checker/    # Symptom Checker & Triage (symptom_matcher, triage_engine, service, router, models, schemas)
@@ -406,6 +408,179 @@ into the 0–100 score, so two moderate cases can still be ranked.
 
 > ⚕️ **Disclaimer:** the CDSS is an **educational decision-support aid only** — not a
 > medical diagnosis. Every finding must be verified by a qualified clinician.
+
+---
+
+## 🧩 AI Clinical Reasoning Platform
+
+Where the CDSS returns a graded *answer*, the **Clinical Reasoning Platform**
+returns the **reasoning**. Instead of jumping straight to a recommendation, it
+walks a fixed, transparent pipeline and records **every step** — with a status, a
+human summary and a structured payload — so a clinician can audit exactly how the
+platform arrived at its conclusion. It is **purely additive**: it only *reads*
+from the existing subsystems (OCR, disease prediction, drug interactions, RAG) and
+changes none of their behaviour.
+
+### The reasoning pipeline
+
+```
+            ┌─────────────────────────── ReasoningRequest ───────────────────────────┐
+            │  medicines · symptoms · disease/diagnosis · ocr_text · age · gender     │
+            └────────────────────────────────────┬───────────────────────────────────┘
+                                                 ▼
+   1  OCR ─────────────────────► echo raw text + detected medicines
+                                                 ▼
+   2  Medicine Detection ───────► normalise the medicine list
+                                                 ▼
+   3  Medicine Validation ──────► resolve against the medicine dataset  ┐  (drug_interactions
+   4  Drug Interaction Analysis ► drug–drug interactions + warnings     ┘   module — reused)
+                                                 ▼
+   5  Disease Prediction ───────► ranked hypotheses            (disease model — reused, in a thread)
+                                                 ▼
+   6  Retrieve Medical Evidence ► RAG knowledge base → EvidenceCards     (rag module — reused)
+                                                 ▼
+   7  Clinical Rules Evaluation ► deterministic MatchedRules   (medical_rules.py)
+                                                 ▼
+   8  Differential Diagnosis ───► leading / considered / rejected + rejection reasons
+                                                 ▼
+   9  Confidence Calculation ───► weighted, auditable ConfidenceBreakdown
+                                                 ▼
+  10  Final Recommendation ─────► graded, individually-justified recommendations
+                                                 ▼
+                             ClinicalReasoningReport  (cached + persisted)
+```
+
+Every stage is a `ReasoningStep` in the report's `reasoning_chain`, so the UI can
+**animate the flow** live and replay it in the timeline afterwards. Each step
+carries `status` (`complete`/`running`/`skipped`/`failed`), a headline `title`, a
+`summary` and its `duration_ms`.
+
+### Full explainability (for the leading diagnosis)
+
+The report's `explanation` object answers, in one place, every "why" the product
+requires:
+
+| Question | Field |
+|----------|-------|
+| Why was this disease predicted? | `why_disease` |
+| Which symptoms contributed? | `contributing_symptoms` (weighted) |
+| Which medicines influenced it? | `influencing_medicines` |
+| Which RAG documents were used? | `rag_documents_used` |
+| Which clinical rules matched? | `matched_rules` |
+| Which alternatives were considered? | `alternatives_considered` |
+| Why were they rejected? | `rejected_alternatives[].rejection_reason` |
+| How confident, and why? | `confidence_breakdown` (weighted components) |
+| What would improve confidence? | `missing_information` |
+
+### The Clinical Reasoning Report (12 sections)
+
+`Patient Summary` · `OCR Findings` · `Medicine Analysis` · `Disease Prediction` ·
+`Clinical Evidence` · `Reasoning Chain` · `Drug Interaction Analysis` ·
+`Confidence Analysis` · `Alternative Diagnoses` · `Clinical Recommendations` ·
+`Follow-up Suggestions` · `Medical References`.
+
+### Confidence — weighted & auditable
+
+Rather than an opaque number, confidence is a weighted sum of five named
+components, each shown with its sub-score and the points it contributed:
+
+| Component | Weight | Measures |
+|-----------|:------:|----------|
+| Input completeness | 20% | How much useful input was provided |
+| Model certainty | 30% | Leading diagnosis probability |
+| Evidence grounding | 20% | Quality/quantity of retrieved evidence |
+| Rule agreement | 15% | Corroborating rules (critical alerts lower it) |
+| Differential separation | 15% | How clearly the leader beats the runner-up |
+
+### Backend module — `backend/clinical_reasoning/` (clean architecture)
+
+| File | Responsibility |
+|------|----------------|
+| `router.py` | Async FastAPI routes (`/reasoning/*`) — logging + exception handling per route |
+| `service.py` | Orchestration, **TTL+LRU caching**, best-effort persistence, history & stats |
+| `reasoning_engine.py` | The step-by-step pipeline orchestrator (async, best-effort, timed steps) |
+| `evidence_engine.py` | RAG retrieval → normalised `EvidenceCard`s (async, best-effort) |
+| `confidence_engine.py` | Weighted, deterministic `ConfidenceBreakdown` |
+| `recommendation_engine.py` | Final recommendations, follow-ups, references, risk roll-up |
+| `medical_rules.py` | Pure, declarative clinical-rules engine → `MatchedRule`s |
+| `explanation_engine.py` | Differential + the nine-part `ReasoningExplanation` |
+| `schemas.py` | Pydantic frontend contract (report, steps, breakdown, differential…) |
+
+Design contract (identical to every other module): **async everywhere** (the
+CPU-bound disease model runs in a worker thread via `asyncio.to_thread`),
+**best-effort integration** (any subsystem failure marks that *step* `failed` and
+degrades gracefully — it never aborts the run), and **best-effort persistence**
+(a DB error never breaks a reasoning run).
+
+### Caching
+
+Identical re-runs (e.g. a page refresh) are served from an in-memory **TTL + LRU
+cache** keyed by a stable hash of the request, so the platform never re-runs the
+slow disease-model + RAG fan-out unnecessarily. Cache metrics are exposed on
+`/reasoning/stats`.
+
+### API endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/reasoning/analyze` | Run the full step-by-step reasoning pipeline |
+| `GET` | `/reasoning/pipeline` | Static pipeline definition (UI renders it before a run) |
+| `GET` | `/reasoning/history` | Paginated past reports (newest first) |
+| `GET` | `/reasoning/stats` | Dashboard aggregates incl. cache metrics |
+| `GET` | `/reasoning/{id}` | Full stored report for one run |
+| `DELETE` | `/reasoning/history` | Clear stored reports |
+
+### Frontend — Clinical Reasoning page (`/reasoning`)
+
+A dedicated page (`src/pages/ClinicalReasoning.jsx`) with three reusable UI
+components:
+
+- **`ReasoningPipeline.jsx`** — the animated reasoning flow: nodes light up and a
+  connector "flows" while a step runs; completed links turn green.
+- **`ConfidenceMeter.jsx`** — a radial confidence gauge plus the weighted
+  component breakdown and "would improve confidence" chips.
+- **`ClinicalReasoningReport.jsx`** — renders all 12 sections, including evidence
+  cards, the differential with rejection reasons, and the reasoning timeline.
+
+While a run is in flight the page shows a **live animated pipeline** that advances
+through the ten stages; on completion it swaps in the real, per-step statuses.
+
+### How the workflow operates
+
+```
+User (medicines + symptoms + patient) ─► POST /reasoning/analyze
+        │
+        ├─ cache hit? ─► return cached report (flagged `cached: true`)
+        │
+        └─ ReasoningEngine.run():
+             OCR → detection → validation → interactions → disease prediction
+             → RAG evidence → clinical rules → differential → confidence
+             → recommendation      (each step timed & recorded)
+                   │
+                   ├─ ConfidenceEngine → weighted breakdown
+                   ├─ ExplanationEngine → differential + nine-part explanation
+                   └─ RecommendationEngine → graded recommendations + follow-ups
+        ▼
+   ClinicalReasoningReport  ──►  cached (TTL+LRU)  &  persisted (best-effort)
+        ▼
+   Frontend animates the reasoning_chain, renders the confidence meter,
+   evidence cards, alternative diagnoses and recommendations.
+```
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `CLINICAL_REASONING_DB_URL` | local SQLite (`…/reasoning.db`) | History store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `CLINICAL_REASONING_USE_RAG` | `true` | Retrieve knowledge-base evidence during reasoning. |
+| `CLINICAL_REASONING_PREDICT_DISEASE` | `true` | Run disease prediction from symptoms when no diagnosis is supplied. |
+| `CLINICAL_REASONING_TOP_K` | `5` | Number of differential candidates to consider. |
+| `CLINICAL_REASONING_CACHE_TTL` | `600` | Cache lifetime (seconds); `0` disables caching. |
+| `CLINICAL_REASONING_CACHE_SIZE` | `128` | Max cached reports (LRU eviction). |
+
+> ⚕️ **Disclaimer:** the Clinical Reasoning Platform is an **educational
+> decision-support aid only** — not a medical diagnosis. Every step, score and
+> recommendation must be verified by a qualified clinician.
 
 ---
 
