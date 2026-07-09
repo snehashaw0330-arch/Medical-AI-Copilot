@@ -6,6 +6,7 @@ import SymptomChecker from './pages/SymptomChecker'
 import PrescriptionOCR from './pages/PrescriptionOCR'
 import ClinicalDecision from './pages/ClinicalDecision'
 import ClinicalReasoning from './pages/ClinicalReasoning'
+import CopilotWorkspace from './pages/CopilotWorkspace'
 import MedicalReports from './pages/MedicalReports'
 import PrescriptionHistory from './pages/PrescriptionHistory'
 import DatasetEvaluation from './pages/DatasetEvaluation'
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="ocr" element={<PrescriptionOCR />} />
         <Route path="clinical" element={<ClinicalDecision />} />
         <Route path="reasoning" element={<ClinicalReasoning />} />
+        <Route path="copilot" element={<CopilotWorkspace />} />
         <Route path="reports" element={<MedicalReports />} />
         <Route path="history" element={<PrescriptionHistory />} />
         <Route path="dataset" element={<DatasetEvaluation />} />

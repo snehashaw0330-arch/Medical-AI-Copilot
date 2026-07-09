@@ -20,10 +20,12 @@ import {
   Layers,
   Network,
   Waypoints,
+  Bot,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/copilot', label: 'Copilot Workspace', icon: Bot },
   { to: '/digital-twin', label: 'Digital Twin', icon: HeartPulse },
   { to: '/governance', label: 'AI Governance', icon: ShieldCheck, end: true },
   { to: '/governance/pipeline', label: 'Pipeline Viewer', icon: Network },

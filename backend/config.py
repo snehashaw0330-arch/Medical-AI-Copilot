@@ -290,6 +290,34 @@ class Settings:
         os.getenv("CLINICAL_REASONING_CACHE_SIZE", "128")  # max cached reports
     )
 
+    # --- AI Medical Copilot Workspace (backend/copilot/) ------------------
+    # A session-scoped orchestrator that chains every existing module — OCR ->
+    # medicine extraction -> interactions -> disease prediction -> RAG evidence
+    # -> clinical decision -> AI summary/treatment/follow-up -> medical report —
+    # while remembering the current patient for the session. All flags are
+    # best-effort and non-fatal by contract: a failure in any stage degrades that
+    # stage only and never aborts the workflow.
+    COPILOT_USE_RAG: bool = (
+        os.getenv("COPILOT_USE_RAG", "true").lower() == "true"
+    )
+    # Use the provider-agnostic LLM layer for the AI summary / treatment /
+    # follow-up narratives and chat. Falls back to a deterministic offline writer
+    # when no provider is configured (the LLM layer is offline-safe by design).
+    COPILOT_USE_LLM: bool = (
+        os.getenv("COPILOT_USE_LLM", "true").lower() == "true"
+    )
+    # In-memory session store: how long an idle patient session is retained and
+    # how many concurrent sessions to keep (LRU eviction of the oldest).
+    COPILOT_SESSION_TTL: int = int(os.getenv("COPILOT_SESSION_TTL", "86400"))  # 24h
+    COPILOT_MAX_SESSIONS: int = int(os.getenv("COPILOT_MAX_SESSIONS", "500"))
+    # Per-session caps so memory stays bounded.
+    COPILOT_MAX_MESSAGES: int = int(os.getenv("COPILOT_MAX_MESSAGES", "200"))
+    COPILOT_MAX_TIMELINE: int = int(os.getenv("COPILOT_MAX_TIMELINE", "300"))
+    COPILOT_MAX_ANALYSES: int = int(os.getenv("COPILOT_MAX_ANALYSES", "50"))
+    # In-memory TTL+LRU cache of workflow results keyed by a hash of the inputs.
+    COPILOT_CACHE_TTL: int = int(os.getenv("COPILOT_CACHE_TTL", "600"))  # seconds
+    COPILOT_CACHE_SIZE: int = int(os.getenv("COPILOT_CACHE_SIZE", "128"))
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

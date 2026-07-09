@@ -4,6 +4,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 
 ## ✨ Features
 
+- 🧑‍⚕️ **AI Medical Copilot Workspace** — a session-scoped orchestrator that, on every upload, automatically runs the **full clinical pipeline** (OCR → medicine extraction → drug interactions → disease prediction → RAG evidence → clinical decision → AI summary → treatment → follow-up → medical report), **remembers the current patient for the session**, and presents everything in a three-panel workspace with a conversation, an AI reasoning view and a live AI Activity Timeline
 - 🛡️ Clinical AI Audit, Explainability & Governance — every AI decision is explainable, traceable, auditable, reproducible & versioned: decision traces, an explainability engine, confidence/reliability analysis, a visual pipeline view, immutable audit logs, model & dataset registries, version tracking and CSV/JSON/PDF export
 - 🫀 Medical Digital Twin — a continuously-evolving virtual health profile per patient: health score, trend analysis, future-risk prediction, timeline & charts, aggregated from every prior analysis
 - 🤖 Multi-Agent AI Medical Copilot — nine specialised agents collaborate over an event-driven pipeline with a live monitor, shared memory & a provider-agnostic LLM layer
@@ -54,6 +55,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 medical-ai-assistant/
 │
 ├── backend/
+│   ├── copilot/        # AI Medical Copilot Workspace (workflow, planner, reasoning, context, memory, summary, service, router, schemas)
 │   ├── ai_governance/  # Clinical AI Audit, Explainability & Governance (decision_tracker, explanation_engine, confidence_analyzer, pipeline_tracker, audit_logger, model_registry, dataset_registry, version_manager, service, router, models, schemas)
 │   ├── digital_twin/   # Medical Digital Twin (health_score, trend/risk/prediction/timeline engines, service, router, models, schemas)
 │   ├── agents/         # Multi-Agent Copilot (manager, engine, registry, event bus, memory, 9 agents)
@@ -581,6 +583,153 @@ User (medicines + symptoms + patient) ─► POST /reasoning/analyze
 > ⚕️ **Disclaimer:** the Clinical Reasoning Platform is an **educational
 > decision-support aid only** — not a medical diagnosis. Every step, score and
 > recommendation must be verified by a qualified clinician.
+
+---
+
+## 🧑‍⚕️ AI Medical Copilot Workspace
+
+The **Copilot Workspace** is the assistant's command centre. It doesn't add a new
+clinical capability — it **orchestrates every existing one** into a single,
+session-aware workflow. Drop in a prescription (or type medicines/symptoms) and the
+Copilot automatically runs the whole pipeline, **remembers the patient for the
+session**, keeps a running conversation, and shows a live **AI Activity Timeline**
+of everything it did.
+
+It is **purely additive**: it only *reads* from the existing modules (OCR, disease,
+drug-interactions, RAG, clinical-decision, report-generator, the LLM layer) and
+changes none of them. Every existing API keeps working unchanged.
+
+### The automatic workflow (11 stages)
+
+```
+        ┌──────────────── upload / medicines / symptoms (one session) ───────────────┐
+        ▼                                                                             │
+  1  Receive Prescription                                                             │
+        ▼                                                                             │
+  2  Run OCR ................................ backend/ocr (run_pipeline, in a thread)  │
+        ▼                                                                             │
+  3  Extract Medicines ...................... OCR medicines ∪ typed ∪ parsed-from-text │
+        ▼                                                                             │
+  4  Check Drug Interactions ................ backend/drug_interactions (reused)       │
+        ▼                                                                             │
+  5  Predict Disease ........................ backend/disease (reused, in a thread)    │
+        ▼                                                                             │
+  6  Retrieve Medical Evidence (RAG) ........ backend/rag via the evidence engine      │
+        ▼                                                                             │
+  7  Generate Clinical Decision ............. backend/clinical_decision (reused)       │
+        ▼                                                                             │
+  8  Generate AI Summary ...................┐                                          │
+  9  Generate Treatment Suggestions ........┤ backend/llm (offline-safe fallback)      │
+ 10  Generate Follow-up Suggestions ........┘                                          │
+        ▼                                                                             │
+ 11  Generate Final Medical Report .......... backend/report_generator (reused)        │
+        ▼                                                                             │
+   CopilotAnalysis  ──►  folded into the session PatientContext  ──►  timeline + chat ─┘
+```
+
+Each stage is recorded as a `ReasoningStep` (status, headline, timing) **and** as
+one or more `ActivityEvent`s (`09:42 OCR Completed`), so the workspace can render
+both the **AI Reasoning** view and the **AI Activity Timeline**.
+
+### Session memory — "remember the current patient"
+
+The Copilot keeps one evolving `PatientContext` per session (in memory, TTL + LRU
+evicted). **Every new upload updates it automatically**: medicines accumulate,
+patient identity/conditions are backfilled from OCR, a `ReportRef` is prepended to
+*Previous Reports*, and the activity timeline grows. A `session_id` is issued on
+the first analyze call and returned on every response; the frontend persists it in
+`localStorage` so a page reload keeps the same patient.
+
+### The workspace layout
+
+| Left panel | Center | Right panel |
+|------------|--------|-------------|
+| Patient Context | Conversation (grounded chat) | Drug Interactions |
+| Current Medicines | AI Reasoning (animated pipeline) | Disease Prediction |
+| Previous Reports | Evidence (RAG cards) | Confidence + Risk |
+| AI Activity Timeline | Current Analysis (summary / treatment / follow-up) | Recommendations · Medical References |
+
+### Backend module — `backend/copilot/` (clean architecture)
+
+| File | Responsibility |
+|------|----------------|
+| `router.py` | Async FastAPI routes (`/copilot/*`) — per-route logging + exception handling; multipart upload; image never retained on disk |
+| `service.py` | Top-level orchestration, **TTL + LRU result cache** (keyed by a hash of inputs incl. the file bytes), session wiring, chat/context/history |
+| `workflow.py` | The 11-stage pipeline orchestrator (async, best-effort, every stage timed) |
+| `planner.py` | Decides which stages to run from the supplied inputs + feature flags (records skip reasons) |
+| `reasoning.py` | `WorkflowTrace` — records the reasoning steps + activity events for one run |
+| `context.py` | Session-scoped `PatientContext` store (TTL + LRU), folds each analysis into memory |
+| `memory.py` | Conversation + activity helpers; builds the grounded prompt snapshot |
+| `summary.py` | AI summary / treatment / follow-up / chat via the provider-agnostic LLM layer (offline-safe) |
+| `schemas.py` | Pydantic frontend contract (analysis, context, chat, history, steps, activity) |
+
+Design contract (identical to every other module): **async everywhere** (CPU-bound
+OCR + disease model run in worker threads via `asyncio.to_thread`), **best-effort
+integration** (any subsystem failure marks *that stage* failed and the workflow
+continues — it never aborts), and **exception-safe** routes.
+
+### Caching
+
+Identical re-runs are served from an in-memory **TTL + LRU cache** keyed by a
+stable hash of the inputs (including the uploaded file's bytes), so the expensive
+OCR + model + RAG fan-out isn't repeated. A cache hit is re-stamped with a fresh
+`analysis_id` and flagged `cached: true`.
+
+### API endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/copilot/analyze` | Run the full 11-stage workflow (multipart: optional image + patient/medicine/symptom fields). Updates the session context. |
+| `POST` | `/copilot/chat` | Ask the Copilot a question grounded in the current patient session. |
+| `GET` | `/copilot/context` | The remembered patient context + conversation for a session. |
+| `GET` | `/copilot/history` | The analyses run in a session (newest first). |
+| `GET` | `/copilot/pipeline` | Static 11-stage pipeline definition (drives the UI animation). |
+
+### Frontend — Copilot Workspace page (`/copilot`)
+
+`src/pages/CopilotWorkspace.jsx` implements the three-panel workspace: an upload +
+tag-input bar, a tabbed center (Conversation / AI Reasoning / Evidence / Current
+Analysis), and live left/right context panels. While the workflow runs, the AI
+Reasoning tab shows an **animated pipeline** (reusing `ui/ReasoningPipeline.jsx`);
+on completion it swaps in the real per-stage statuses. The session id is persisted
+in `localStorage` so the patient survives a reload.
+
+### How the workflow operates
+
+```
+Upload / inputs ─► POST /copilot/analyze (multipart)
+        │
+        ├─ resolve session (create or reuse)  ── remembers the patient
+        ├─ cache hit? ─► return re-stamped cached analysis (cached: true)
+        └─ CopilotWorkflow.run() under the session lock:
+             receive → OCR → extract → interactions → disease → evidence
+             → clinical decision → summary → treatment → follow-up → report
+                   │  (each stage recorded: ReasoningStep + ActivityEvent)
+                   ▼
+             CopilotAnalysis
+                   │
+                   ├─ fold into PatientContext (medicines, conditions, reports, timeline)
+                   └─ append assistant message to the conversation
+        ▼
+   Frontend updates all three panels + the AI Activity Timeline; the clinician can
+   then chat with the Copilot, grounded in the accumulated session context.
+```
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `COPILOT_USE_RAG` | `true` | Retrieve knowledge-base evidence during the workflow. |
+| `COPILOT_USE_LLM` | `true` | Use the LLM layer for narratives + chat (offline-safe fallback). |
+| `COPILOT_SESSION_TTL` | `86400` | Idle patient-session lifetime (seconds). |
+| `COPILOT_MAX_SESSIONS` | `500` | Max concurrent sessions (LRU eviction). |
+| `COPILOT_CACHE_TTL` | `600` | Workflow result cache lifetime (seconds); `0` disables. |
+| `COPILOT_CACHE_SIZE` | `128` | Max cached workflow results (LRU eviction). |
+| `COPILOT_MAX_MESSAGES` / `COPILOT_MAX_TIMELINE` / `COPILOT_MAX_ANALYSES` | `200` / `300` / `50` | Per-session bounds so memory stays bounded. |
+
+> ⚕️ **Disclaimer:** the Copilot Workspace is an **educational decision-support aid
+> only** — not a medical diagnosis. Every summary, suggestion and report must be
+> verified by a qualified clinician. In an emergency, seek urgent care.
 
 ---
 
