@@ -4,6 +4,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 
 ## ✨ Features
 
+- 🧪 **AI Medical Simulation Engine** — a "what-if" engine that lets a clinician simulate treatment changes (dose change, replace / remove / add) and patient changes (age, weight, pregnancy, renal or hepatic impairment, allergies) across **multiple scenarios**, and see the projected drug interactions, disease risk, clinical recommendations, treatment suggestions, side effects, contraindications and RAG evidence — with a confidence breakdown — **before deciding**. Compares every scenario (and A vs B) against the baseline.
 - 🧑‍⚕️ **AI Medical Copilot Workspace** — a session-scoped orchestrator that, on every upload, automatically runs the **full clinical pipeline** (OCR → medicine extraction → drug interactions → disease prediction → RAG evidence → clinical decision → AI summary → treatment → follow-up → medical report), **remembers the current patient for the session**, and presents everything in a three-panel workspace with a conversation, an AI reasoning view and a live AI Activity Timeline
 - 🛡️ Clinical AI Audit, Explainability & Governance — every AI decision is explainable, traceable, auditable, reproducible & versioned: decision traces, an explainability engine, confidence/reliability analysis, a visual pipeline view, immutable audit logs, model & dataset registries, version tracking and CSV/JSON/PDF export
 - 🫀 Medical Digital Twin — a continuously-evolving virtual health profile per patient: health score, trend analysis, future-risk prediction, timeline & charts, aggregated from every prior analysis
@@ -55,6 +56,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 medical-ai-assistant/
 │
 ├── backend/
+│   ├── simulation/     # AI Medical Simulation Engine (simulation_engine, treatment_engine, risk_engine, recommendation_engine, patient_model, service, router, schemas)
 │   ├── copilot/        # AI Medical Copilot Workspace (workflow, planner, reasoning, context, memory, summary, service, router, schemas)
 │   ├── ai_governance/  # Clinical AI Audit, Explainability & Governance (decision_tracker, explanation_engine, confidence_analyzer, pipeline_tracker, audit_logger, model_registry, dataset_registry, version_manager, service, router, models, schemas)
 │   ├── digital_twin/   # Medical Digital Twin (health_score, trend/risk/prediction/timeline engines, service, router, models, schemas)
@@ -730,6 +732,156 @@ Upload / inputs ─► POST /copilot/analyze (multipart)
 > ⚕️ **Disclaimer:** the Copilot Workspace is an **educational decision-support aid
 > only** — not a medical diagnosis. Every summary, suggestion and report must be
 > verified by a qualified clinician. In an emergency, seek urgent care.
+
+---
+
+## 🧪 AI Medical Simulation Engine
+
+The Simulation Engine answers the question a clinician asks *before* changing a
+prescription: **"what happens if I do this?"** Given a baseline prescription + a
+patient, the doctor describes one or more **scenarios** — dose changes, medicine
+replace / remove / add, and patient changes (age, weight, pregnancy, renal or
+hepatic impairment, allergies) — and the engine projects the resulting picture for
+each, then compares every scenario against the baseline (and A vs B).
+
+It is **purely additive**: it only *reads* from the existing subsystems (OCR,
+disease prediction, drug interactions, clinical decision, RAG, report generator)
+and mutates none. Every existing API keeps working unchanged.
+
+### What every simulation produces (per scenario)
+
+Updated **drug interactions** · updated **disease risk** · **clinical
+recommendations** · **treatment suggestions** · possible **side effects** ·
+**contraindications** · **RAG evidence** · a weighted **confidence** breakdown — plus
+a single 0-100 **composite risk score** (lower is safer) that the comparison is
+built on.
+
+### Supported changes
+
+| Treatment changes | Patient changes |
+|-------------------|-----------------|
+| Medicine **dosage** change | **Age** change |
+| Medicine **replacement** | **Weight** change |
+| Medicine **removal** | **Pregnancy** status |
+| Medicine **addition** | **Kidney** disease (none→severe) |
+| | **Liver** disease (none→severe) |
+| | **Allergy** changes |
+
+### Example
+
+```
+Current Prescription            Doctor's change (Scenario A)
+  Paracetamol 500mg    ──►         Paracetamol 650mg
+  Amoxicillin 500mg
+        │
+        ▼  simulate
+  ┌───────────────────────────────────────────────────────────┐
+  │ apply edits ─► re-run interactions + disease + evidence    │
+  │            ─► contraindications · side effects · risk      │
+  │            ─► recommendations · treatment · confidence     │
+  └───────────────────────────────────────────────────────────┘
+        │
+        ▼  compare vs Baseline (and A vs B)
+   Interaction Risk → Clinical Recommendation → Evidence → Final Report
+```
+
+### How it flows
+
+```
+POST /simulation/run  { baseline_medicines, patient, scenarios[] }
+        │
+        ├─ cache hit? ─► return cached report (cached: true)
+        │
+        └─ for the BASELINE and EACH scenario (run concurrently):
+             treatment_engine.apply_changes()   → resulting medicines + edit log
+             patient_model.apply_patient_change()→ effective patient + derived flags
+                   │
+                   ├─ drug_interactions.analyze_medicines()   (reused)
+                   ├─ disease.predict() (in a thread)          (reused)
+                   ├─ clinical_reasoning.evidence_engine       (RAG, reused)
+                   ├─ recommendation_engine → contraindications, side effects,
+                   │                          treatment suggestions, recommendations
+                   └─ risk_engine → disease risk + composite risk score + confidence
+        ▼
+   simulation_engine.compare(baseline, variant)  → ComparisonDelta (risk Δ, new/resolved
+        │                                            interactions, new contraindications, verdict)
+        ▼
+   pick safest scenario → SimulationReport (cached + persisted)
+```
+
+### Backend module — `backend/simulation/` (clean architecture)
+
+| File | Responsibility |
+|------|----------------|
+| `router.py` | Async FastAPI routes (`/simulation/*`) — per-route logging + exception handling |
+| `service.py` | Orchestration (baseline + N scenarios, concurrent), comparisons, safest-scenario pick, **TTL+LRU cache**, best-effort persistence + history |
+| `simulation_engine.py` | Evaluates one scenario end-to-end (async, best-effort) and builds the variant-vs-baseline / A-vs-B comparisons |
+| `treatment_engine.py` | Parses medicine strings and applies the treatment edits (dosage / replace / remove / add) with a human-readable change log |
+| `patient_model.py` | Applies patient overrides → effective patient; derives clinical flags (paediatric / geriatric / pregnancy / renal / hepatic / low-weight) |
+| `risk_engine.py` | Disease risk (patient-amplified) + the composite 0-100 risk score |
+| `recommendation_engine.py` | Contraindications, side effects, treatment suggestions, clinical recommendations + weighted confidence breakdown (curated safety net over the live datasets) |
+| `schemas.py` | Pydantic frontend contract (request, scenario, result, comparison, report, history) |
+
+Design contract (identical to every other module): **async everywhere** (CPU-bound
+disease model runs in a worker thread via `asyncio.to_thread`; baseline + scenarios
+run concurrently with `asyncio.gather`), **best-effort integration** (any subsystem
+failure degrades that stage only and is recorded in `warnings` — it never aborts a
+simulation), and **best-effort persistence** (a DB error never breaks a run).
+
+### Caching
+
+Identical re-runs are served from an in-memory **TTL + LRU cache** keyed by a stable
+hash of the request, so the interaction + disease + RAG fan-out isn't repeated. A
+cache hit is flagged `cached: true`.
+
+### Multiple scenarios & A-vs-B comparison
+
+Every request may carry several scenarios (capped by `SIMULATION_MAX_SCENARIOS`).
+The engine always simulates an implicit **baseline** (current prescription, no
+changes) and compares each variant to it; when exactly two variants are supplied it
+also emits a direct **A vs B** comparison. Each `ComparisonDelta` carries the risk-
+score delta, new/resolved interactions, new contraindications and a plain-language
+verdict, and the report names the safest **recommended scenario**.
+
+### API endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/simulation/run` | Run a simulation (baseline + variant scenarios); returns per-scenario results + comparisons |
+| `GET` | `/simulation/history` | Paginated list of past simulations (newest first) |
+| `GET` | `/simulation/{id}` | Full stored report for one simulation |
+| `DELETE` | `/simulation/history` | Clear stored simulations |
+
+### Frontend — Treatment Simulator page (`/simulator`)
+
+`src/pages/TreatmentSimulator.jsx` renders the required workspace: **Current
+Treatment** + **Editable Medicines** (name / dose / unit rows), a patient editor,
+and a **scenario builder** (add multiple scenarios; each with medicine changes +
+patient overrides). Results show a **Risk Meter** per scenario, a **Clinical
+Summary** with the recommended scenario, the **Scenario Comparison** (A vs Baseline,
+A vs B), **Alternative Treatments** (treatment suggestions), **Evidence Cards** and a
+**Confidence Meter** (reusing `ui/ConfidenceMeter.jsx`).
+
+### Integrations (reused, never modified)
+
+OCR · Disease Prediction · Drug Interaction Analysis · Clinical Decision Support ·
+RAG Knowledge Base · Medical Reports (the recommended scenario can be persisted as a
+durable report via `generate_report: true`).
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `SIMULATION_DB_URL` | local SQLite (`…/simulation.db`) | History store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `SIMULATION_USE_RAG` | `true` | Retrieve knowledge-base evidence per scenario. |
+| `SIMULATION_PREDICT_DISEASE` | `true` | Run disease prediction from symptoms inside a simulation. |
+| `SIMULATION_MAX_SCENARIOS` | `6` | Max variant scenarios per request (bounds fan-out). |
+| `SIMULATION_CACHE_TTL` | `600` | Result cache lifetime (seconds); `0` disables. |
+| `SIMULATION_CACHE_SIZE` | `128` | Max cached reports (LRU eviction). |
+
+> ⚕️ **Disclaimer:** the Simulation Engine is an **educational decision-support aid
+> only** — not a medical order. Projected interactions, risks and suggestions must
+> be verified by a qualified clinician before any treatment change.
 
 ---
 

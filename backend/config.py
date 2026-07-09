@@ -318,6 +318,34 @@ class Settings:
     COPILOT_CACHE_TTL: int = int(os.getenv("COPILOT_CACHE_TTL", "600"))  # seconds
     COPILOT_CACHE_SIZE: int = int(os.getenv("COPILOT_CACHE_SIZE", "128"))
 
+    # --- AI Medical Simulation Engine (backend/simulation/) ---------------
+    # A "what-if" engine that lets a clinician simulate treatment/patient changes
+    # (dose changes, replace/remove/add, age/weight/pregnancy/renal/hepatic/allergy)
+    # and see the projected interactions, disease risk, recommendations, side
+    # effects, contraindications and RAG evidence BEFORE acting. Every integration
+    # is best-effort and non-fatal by contract — a failure in any stage degrades
+    # that stage only and never aborts a simulation.
+    SIMULATION_DB_URL: str = os.getenv(
+        "SIMULATION_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/simulation/simulation.db')}",
+        ),
+    )
+    # Retrieve knowledge-base evidence for each simulated scenario.
+    SIMULATION_USE_RAG: bool = (
+        os.getenv("SIMULATION_USE_RAG", "true").lower() == "true"
+    )
+    # Run disease prediction from symptoms inside a simulation.
+    SIMULATION_PREDICT_DISEASE: bool = (
+        os.getenv("SIMULATION_PREDICT_DISEASE", "true").lower() == "true"
+    )
+    # Maximum scenarios accepted in one simulation request (bounds fan-out).
+    SIMULATION_MAX_SCENARIOS: int = int(os.getenv("SIMULATION_MAX_SCENARIOS", "6"))
+    # In-memory TTL+LRU cache of simulation reports (keyed by a hash of the inputs).
+    SIMULATION_CACHE_TTL: int = int(os.getenv("SIMULATION_CACHE_TTL", "600"))  # seconds
+    SIMULATION_CACHE_SIZE: int = int(os.getenv("SIMULATION_CACHE_SIZE", "128"))
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

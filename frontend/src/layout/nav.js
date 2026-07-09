@@ -21,6 +21,7 @@ import {
   Network,
   Waypoints,
   Bot,
+  FlaskConical,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
@@ -38,6 +39,7 @@ export const NAV_ITEMS = [
   { to: '/ocr', label: 'Prescription OCR', icon: ScanLine },
   { to: '/clinical', label: 'Clinical Decision', icon: BrainCircuit },
   { to: '/reasoning', label: 'Clinical Reasoning', icon: Waypoints },
+  { to: '/simulator', label: 'Treatment Simulator', icon: FlaskConical },
   { to: '/reports', label: 'Medical Reports', icon: FileText },
   { to: '/history', label: 'Prescription History', icon: History },
   { to: '/dataset', label: 'Dataset Evaluation', icon: Database },
