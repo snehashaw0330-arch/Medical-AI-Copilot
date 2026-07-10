@@ -1,6 +1,10 @@
-# 🩺 Medical AI Assistant
+# 🩺 AI-Powered Clinical Decision Support System
 
-An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and **Machine Learning** to help users with disease prediction, handwritten prescription OCR, medicine information lookup, and an intelligent medical chatbot.
+An enterprise-grade AI-powered Clinical Decision Support System (CDSS) that combines Prescription OCR, Retrieval-Augmented Generation (RAG), Large Language Models (LLMs), Disease Prediction, Drug Interaction Analysis, Clinical Reasoning, Explainable AI, Multi-Agent AI, and Medical Knowledge Retrieval to provide evidence-based clinical decision support.
+
+The platform integrates Computer Vision, Machine Learning, Natural Language Processing (NLP), Vector Search, and Generative AI to assist healthcare professionals with prescription analysis, clinical reasoning, risk assessment, treatment recommendations, and patient-centric decision support.
+
+Built using FastAPI, React.js, EasyOCR, Scikit-learn, Sentence Transformers, ChromaDB, SQLAlchemy, and modern AI engineering practices.
 
 ## ✨ Features
 
