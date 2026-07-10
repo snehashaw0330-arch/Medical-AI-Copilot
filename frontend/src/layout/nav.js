@@ -22,6 +22,7 @@ import {
   Waypoints,
   Bot,
   FlaskConical,
+  BadgeCheck,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
@@ -40,6 +41,7 @@ export const NAV_ITEMS = [
   { to: '/clinical', label: 'Clinical Decision', icon: BrainCircuit },
   { to: '/reasoning', label: 'Clinical Reasoning', icon: Waypoints },
   { to: '/simulator', label: 'Treatment Simulator', icon: FlaskConical },
+  { to: '/verification', label: 'Evidence Verification', icon: BadgeCheck },
   { to: '/reports', label: 'Medical Reports', icon: FileText },
   { to: '/history', label: 'Prescription History', icon: History },
   { to: '/dataset', label: 'Dataset Evaluation', icon: Database },

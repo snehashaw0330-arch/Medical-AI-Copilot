@@ -11,6 +11,7 @@ from backend.clinical_decision.router import router as clinical_router
 from backend.clinical_reasoning.router import router as reasoning_router
 from backend.copilot.router import router as copilot_router
 from backend.simulation.router import router as simulation_router
+from backend.evidence_verification.router import router as verification_router
 from backend.report_generator.router import router as reports_router
 from backend.prescription_validation.router import router as validation_router
 from backend.symptom_checker.router import router as symptoms_router
@@ -58,6 +59,7 @@ app.include_router(clinical_router)  # /clinical/*     (clinical decision suppor
 app.include_router(reasoning_router)  # /reasoning/*   (AI clinical reasoning platform)
 app.include_router(copilot_router)   # /copilot/*      (AI Medical Copilot Workspace)
 app.include_router(simulation_router)  # /simulation/* (AI Medical Simulation Engine)
+app.include_router(verification_router)  # /verification/* (hallucination detection & evidence verification)
 app.include_router(reports_router)   # /reports/*      (medical report generator)
 app.include_router(validation_router)  # /validation/*  (prescription validation)
 app.include_router(symptoms_router)  # /symptoms/*     (symptom checker & triage)

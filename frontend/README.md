@@ -4,6 +4,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 
 ## ✨ Features
 
+- 🛡️ **AI Hallucination Detection & Evidence Verification** — every AI-generated response can be verified against the retrieved medical knowledge base before it is trusted: the engine breaks the answer into atomic **claims**, scores each against the evidence (semantic + lexical), and reports **evidence coverage**, **citation strength**, a **hallucination-risk** category (very low → critical), a **confidence** score, plus **unsupported claims**, **contradictions** and **missing references** — with unsupported statements highlighted in red
 - 🧪 **AI Medical Simulation Engine** — a "what-if" engine that lets a clinician simulate treatment changes (dose change, replace / remove / add) and patient changes (age, weight, pregnancy, renal or hepatic impairment, allergies) across **multiple scenarios**, and see the projected drug interactions, disease risk, clinical recommendations, treatment suggestions, side effects, contraindications and RAG evidence — with a confidence breakdown — **before deciding**. Compares every scenario (and A vs B) against the baseline.
 - 🧑‍⚕️ **AI Medical Copilot Workspace** — a session-scoped orchestrator that, on every upload, automatically runs the **full clinical pipeline** (OCR → medicine extraction → drug interactions → disease prediction → RAG evidence → clinical decision → AI summary → treatment → follow-up → medical report), **remembers the current patient for the session**, and presents everything in a three-panel workspace with a conversation, an AI reasoning view and a live AI Activity Timeline
 - 🛡️ Clinical AI Audit, Explainability & Governance — every AI decision is explainable, traceable, auditable, reproducible & versioned: decision traces, an explainability engine, confidence/reliability analysis, a visual pipeline view, immutable audit logs, model & dataset registries, version tracking and CSV/JSON/PDF export
@@ -56,6 +57,7 @@ An AI-powered healthcare assistant built with **FastAPI**, **React (Vite)**, and
 medical-ai-assistant/
 │
 ├── backend/
+│   ├── evidence_verification/  # Hallucination Detection & Evidence Verification (verification_engine, hallucination_detector, evidence_ranker, citation_builder, confidence_calculator, service, router, schemas)
 │   ├── simulation/     # AI Medical Simulation Engine (simulation_engine, treatment_engine, risk_engine, recommendation_engine, patient_model, service, router, schemas)
 │   ├── copilot/        # AI Medical Copilot Workspace (workflow, planner, reasoning, context, memory, summary, service, router, schemas)
 │   ├── ai_governance/  # Clinical AI Audit, Explainability & Governance (decision_tracker, explanation_engine, confidence_analyzer, pipeline_tracker, audit_logger, model_registry, dataset_registry, version_manager, service, router, models, schemas)
@@ -882,6 +884,152 @@ durable report via `generate_report: true`).
 > ⚕️ **Disclaimer:** the Simulation Engine is an **educational decision-support aid
 > only** — not a medical order. Projected interactions, risks and suggestions must
 > be verified by a qualified clinician before any treatment change.
+
+---
+
+## 🛡️ AI Hallucination Detection & Evidence Verification
+
+Large language models can produce fluent, confident text that is not actually
+supported by any source — a serious risk in a medical setting. This engine is the
+project's safeguard: it takes an AI-generated response and **checks it, claim by
+claim, against the medical evidence retrieved from the RAG knowledge base**, then
+estimates whether the response is well-grounded or potentially hallucinated.
+
+It is purely additive: it only *reads* from the RAG knowledge base and changes no
+existing feature. Any module can also call `verify_response()` to verify its own
+generated text before showing it to the user.
+
+### Verification architecture
+
+```
+   User question
+        │
+        ▼
+   Retrieve context (RAG knowledge base) ──► evidence chunks + retrieval score
+        │
+        ▼
+   Generate AI response  (RAG answer, or the caller's own text is supplied)
+        │
+        ▼
+   ┌──────────────────────── verification_engine ────────────────────────┐
+   │  hallucination_detector : split response → atomic claims            │
+   │                           build claim↔evidence similarity           │
+   │                           classify: supported / weak / unsupported /│
+   │                                     contradicted                    │
+   │  evidence_ranker        : rank docs by response-relevance           │
+   │  citation_builder       : link supported claims → evidence (+strength)│
+   │  confidence_calculator  : coverage · citation strength · risk · conf│
+   └─────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+   Verified response  +  metrics  +  per-claim highlighting  (cached + persisted)
+```
+
+### Hallucination detection workflow
+
+1. **Claim extraction** — the response is split into atomic, verifiable claims
+   (sentences); questions, greetings and disclaimers are dropped.
+2. **Similarity** — each claim is compared to every evidence sentence. When the
+   RAG embedding model (MiniLM) is available the score is **semantic cosine
+   blended with lexical content-containment**; otherwise a deterministic lexical
+   fallback is used. The blend is deliberate: same-topic sentences score a high
+   baseline cosine even when the specific assertion is absent, so a claim whose
+   distinctive terms don't appear in the evidence is penalised down — this is what
+   stops an on-topic hallucination from being marked "supported".
+3. **Classification** — each claim becomes **supported** (strong match), **weak**
+   (partial/indirect), **unsupported** (no match) or **contradicted** (high overlap
+   but opposite negation polarity — a heuristic contradiction flag).
+4. **Roll-up** — coverage, citation strength, hallucination risk and confidence.
+
+### Evidence scoring
+
+| Metric | How it's computed |
+|--------|-------------------|
+| **Evidence coverage %** | `(supported + 0.5 × weak) / total_claims` |
+| **Citation strength** | avg of each citation's strength (`0.85 × similarity + 0.15 × retrieval_score`) |
+| **Document relevance** | `0.7 × best-claim-match + 0.3 × original retrieval score` (used to rank retrieved docs) |
+| **Missing references** | weak/unsupported claims that read as assertions but have no solid citation |
+
+### Hallucination-risk categories
+
+The risk score (0-100, higher = riskier) is
+`0.60 × unsupported% + 0.20 × weak% + contradiction_penalty + evidence_penalty`,
+bucketed into five levels:
+
+| Score | Category |
+|:-----:|----------|
+| < 10 | **Very Low** |
+| 10–24 | **Low** |
+| 25–49 | **Medium** |
+| 50–74 | **High** |
+| ≥ 75 | **Critical** |
+
+### Confidence calculation
+
+Confidence (0-100) is a weighted, explainable blend — the panel shows every
+component and the points it contributed:
+
+| Component | Weight | Score source |
+|-----------|:------:|--------------|
+| Evidence coverage | 35% | % of claims supported |
+| Citation strength | 25% | avg citation strength |
+| Retrieval quality | 20% | RAG retrieval confidence × 100 |
+| Low hallucination | 20% | `100 − hallucination_risk_score` |
+
+### Backend module — `backend/evidence_verification/` (clean architecture)
+
+| File | Responsibility |
+|------|----------------|
+| `router.py` | Async FastAPI routes (`/verification/*`) — per-route logging + exception handling |
+| `service.py` | RAG retrieval + optional generation, **TTL+LRU cache**, best-effort persistence + history; `verify_response()` for reuse by other modules |
+| `verification_engine.py` | Orchestrates the claim-level pipeline over one response |
+| `hallucination_detector.py` | Claim extraction, semantic+lexical similarity (blended), support classification, contradiction heuristic |
+| `evidence_ranker.py` | Ranks retrieved documents by response-relevance; annotates which claims each supports |
+| `citation_builder.py` | Links supported claims to their strongest evidence (citation strength) + missing references |
+| `confidence_calculator.py` | Coverage, citation strength, hallucination-risk category + weighted confidence breakdown |
+| `schemas.py` | Pydantic frontend contract (request, claim, evidence, citation, metrics, result, history) |
+
+Design contract (identical to every other module): **async everywhere** (RAG
+retrieval + embeddings run off the event loop), **best-effort** (missing evidence
+or an unavailable embedding model still yields an honest, well-formed result via
+the lexical fallback — it never raises), structured **logging**, graceful **error
+handling**, and **caching** of repeated requests.
+
+### API endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/verification/check` | Verify a response (or generate one via RAG, then verify) against evidence |
+| `GET` | `/verification/history` | Paginated list of past verifications (newest first) |
+| `GET` | `/verification/{id}` | Full stored result for one verification |
+| `DELETE` | `/verification/history` | Clear stored verifications |
+
+### Frontend — Evidence Verification (`/verification`)
+
+`src/pages/EvidenceVerification.jsx` + the reusable `ui/EvidenceVerificationPanel.jsx`
+render the required panel: **Evidence Coverage**, a **Confidence Meter**, a
+**Hallucination-Risk badge**, the **Retrieved Documents**, **Supporting Citations**
+and **Unsupported Statements** — with the verified response shown claim-by-claim and
+**unsupported / contradicted claims highlighted in red**. The panel is a standalone
+component so it can be dropped next to any AI answer (e.g. the AI Chat) to verify it
+inline.
+
+### Configuration (all optional — sensible defaults)
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `VERIFICATION_DB_URL` | local SQLite (`…/verification.db`) | History store (falls back to `DATABASE_URL`; PostgreSQL-ready). |
+| `VERIFICATION_USE_EMBEDDINGS` | `true` | Use the RAG embedding model for semantic similarity (else lexical only). |
+| `VERIFICATION_TOP_K` | `6` | Evidence chunks to retrieve when the caller supplies none. |
+| `VERIFICATION_SUPPORT_THRESHOLD` | `0.50` | Blended-similarity threshold for "supported". |
+| `VERIFICATION_WEAK_THRESHOLD` | `0.32` | Blended-similarity threshold for "weak". |
+| `VERIFICATION_CACHE_TTL` | `600` | Result cache lifetime (seconds); `0` disables. |
+| `VERIFICATION_CACHE_SIZE` | `256` | Max cached verifications (LRU eviction). |
+
+> ⚕️ **Disclaimer:** evidence verification is an **automated safeguard** that
+> estimates how well an AI response is grounded in the retrieved knowledge base. It
+> is **not** a guarantee of correctness; unsupported or contradicted claims must be
+> checked by a qualified clinician before being relied upon.
 
 ---
 

@@ -346,6 +346,36 @@ class Settings:
     SIMULATION_CACHE_TTL: int = int(os.getenv("SIMULATION_CACHE_TTL", "600"))  # seconds
     SIMULATION_CACHE_SIZE: int = int(os.getenv("SIMULATION_CACHE_SIZE", "128"))
 
+    # --- AI Hallucination Detection & Evidence Verification ----------------
+    # (backend/evidence_verification/) Verifies any AI-generated response against
+    # retrieved medical evidence: evidence coverage, citation strength, unsupported
+    # claims, contradictions, a hallucination-risk category and a confidence score.
+    # Every integration is best-effort and non-fatal by contract.
+    VERIFICATION_DB_URL: str = os.getenv(
+        "VERIFICATION_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/evidence_verification/verification.db')}",
+        ),
+    )
+    # Reuse the RAG embedding model for semantic claim↔evidence similarity when
+    # available; otherwise fall back to a deterministic lexical similarity.
+    VERIFICATION_USE_EMBEDDINGS: bool = (
+        os.getenv("VERIFICATION_USE_EMBEDDINGS", "true").lower() == "true"
+    )
+    # Number of evidence chunks to retrieve when the caller doesn't supply any.
+    VERIFICATION_TOP_K: int = int(os.getenv("VERIFICATION_TOP_K", "6"))
+    # Semantic cosine thresholds (MiniLM) for classifying a claim's support.
+    VERIFICATION_SUPPORT_THRESHOLD: float = float(
+        os.getenv("VERIFICATION_SUPPORT_THRESHOLD", "0.50")
+    )
+    VERIFICATION_WEAK_THRESHOLD: float = float(
+        os.getenv("VERIFICATION_WEAK_THRESHOLD", "0.32")
+    )
+    # In-memory TTL+LRU cache of verification results (keyed by a hash of inputs).
+    VERIFICATION_CACHE_TTL: int = int(os.getenv("VERIFICATION_CACHE_TTL", "600"))
+    VERIFICATION_CACHE_SIZE: int = int(os.getenv("VERIFICATION_CACHE_SIZE", "256"))
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(
