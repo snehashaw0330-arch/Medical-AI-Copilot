@@ -17,6 +17,7 @@ import MedicineSearch from './pages/MedicineSearch'
 import MedicineRecommendations from './pages/MedicineRecommendations'
 import AgentMonitor from './pages/AgentMonitor'
 import DigitalTwin from './pages/DigitalTwin'
+import PatientContext from './pages/PatientContext'
 import AIGovernance from './pages/AIGovernance'
 import ModelRegistry from './pages/ModelRegistry'
 import DatasetRegistry from './pages/DatasetRegistry'
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="recommendations" element={<MedicineRecommendations />} />
         <Route path="agents" element={<AgentMonitor />} />
         <Route path="digital-twin" element={<DigitalTwin />} />
+        <Route path="patient-context" element={<PatientContext />} />
         <Route path="governance" element={<AIGovernance />} />
         <Route path="governance/models" element={<ModelRegistry />} />
         <Route path="governance/datasets" element={<DatasetRegistry />} />

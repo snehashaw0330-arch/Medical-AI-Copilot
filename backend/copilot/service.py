@@ -18,6 +18,7 @@ subsystem degrades gracefully and never takes down the workspace.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -199,9 +200,47 @@ class CopilotService:
             memory.add_message(sess, ChatRole.USER, message)
             snapshot = memory.patient_snapshot(sess.context)
             convo = memory.transcript(sess, limit=10)
+            patient_name = sess.context.patient_name          # NEW
+
+        # NEW — Step 1: retrieve durable, cross-session patient memory. This is
+        # a separate module/DB (backend.patient_context) and must never break
+        # chat if the patient can't be identified yet or the store is down.
+        patient_id: str | None = None                                             # NEW
+        pc_service = None                                                         # NEW
+        if settings.COPILOT_USE_PATIENT_CONTEXT and patient_name:                 # NEW
+            try:                                                                  # NEW
+                from backend.patient_context.context_manager import slugify as pc_slugify  # NEW
+                from backend.patient_context.service import get_service as get_pc_service  # NEW
+
+                patient_id = pc_slugify(patient_name)                             # NEW
+                pc_service = get_pc_service()                                     # NEW
+                remembered = await pc_service.get_grounding_context(patient_id)   # NEW
+                if remembered:                                                    # NEW
+                    snapshot = f"{snapshot}\n\nRemembered patient history:\n{remembered}"  # NEW
+            except Exception as exc:  # noqa: BLE001                              # NEW
+                logger.warning("patient_context memory unavailable: %s", exc)     # NEW
+                patient_id = None                                                 # NEW
+
+        # NEW — Step 2: retrieve relevant medical knowledge via RAG (chat
+        # currently skips RAG retrieval entirely — this closes that gap).
+        # Best-effort: degrades to no extra evidence if no index is built yet.
+        if settings.COPILOT_USE_RAG:                                              # NEW
+            try:                                                                  # NEW
+                from backend.rag.retriever import get_retriever                   # NEW
+
+                retriever = get_retriever()                                       # NEW
+                if retriever.available():                                        # NEW
+                    chunks = await asyncio.to_thread(retriever.retrieve, message, top_k=4)  # NEW
+                    if chunks:                                                    # NEW
+                        evidence = "\n".join(f"- ({c.source}) {c.text[:300]}" for c in chunks)  # NEW
+                        # NEW — Step 3: combine memory + evidence into the snapshot.
+                        snapshot = f"{snapshot}\n\nRelevant medical knowledge:\n{evidence}"  # NEW
+            except Exception as exc:  # noqa: BLE001                              # NEW
+                logger.warning("RAG retrieval unavailable for chat: %s", exc)     # NEW
 
         from backend.copilot.summary import get_engine as get_summary_engine
 
+        # Step 4 — generate the personalized response (unchanged call).
         reply, provider = await get_summary_engine().chat(
             system_context=snapshot, transcript=convo, question=message,
         )
@@ -212,6 +251,18 @@ class CopilotService:
             if sess.analyses:
                 refs = [e.title for e in sess.analyses[0].evidence][:5]
             memory.add_message(sess, ChatRole.ASSISTANT, reply, references=refs)
+
+        # NEW — Step 5: store the updated conversation summary in durable
+        # memory. Best-effort: never raises, so a patient_context/LLM failure
+        # here can never turn a successful chat reply into a 500.
+        if patient_id and pc_service is not None:                                 # NEW
+            try:                                                                  # NEW
+                await pc_service.record_chat_turn(                                # NEW
+                    patient_id, patient_name=patient_name, user_message=message,  # NEW
+                    assistant_reply=reply, references=refs, session_id=sess.id,   # NEW
+                )                                                                 # NEW
+            except Exception as exc:  # noqa: BLE001                              # NEW
+                logger.warning("Failed to persist patient_context chat turn: %s", exc)  # NEW
 
         return CopilotChatResponse(
             session_id=sess.id, reply=reply, references=refs,

@@ -10,6 +10,7 @@ from backend.drug_interactions.router import router as interactions_router
 from backend.clinical_decision.router import router as clinical_router
 from backend.clinical_reasoning.router import router as reasoning_router
 from backend.copilot.router import router as copilot_router
+from backend.patient_context.router import router as patient_context_router
 from backend.simulation.router import router as simulation_router
 from backend.evidence_verification.router import router as verification_router
 from backend.report_generator.router import router as reports_router
@@ -58,6 +59,7 @@ app.include_router(interactions_router)  # /interactions/* (drug interaction ana
 app.include_router(clinical_router)  # /clinical/*     (clinical decision support)
 app.include_router(reasoning_router)  # /reasoning/*   (AI clinical reasoning platform)
 app.include_router(copilot_router)   # /copilot/*      (AI Medical Copilot Workspace)
+app.include_router(patient_context_router)  # /patient-context/* (patient memory & conversation context)
 app.include_router(simulation_router)  # /simulation/* (AI Medical Simulation Engine)
 app.include_router(verification_router)  # /verification/* (hallucination detection & evidence verification)
 app.include_router(reports_router)   # /reports/*      (medical report generator)

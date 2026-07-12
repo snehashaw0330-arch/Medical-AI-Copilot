@@ -23,12 +23,14 @@ import {
   Bot,
   FlaskConical,
   BadgeCheck,
+  Brain,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/copilot', label: 'Copilot Workspace', icon: Bot },
   { to: '/digital-twin', label: 'Digital Twin', icon: HeartPulse },
+  { to: '/patient-context', label: 'Patient Context', icon: Brain },
   { to: '/governance', label: 'AI Governance', icon: ShieldCheck, end: true },
   { to: '/governance/pipeline', label: 'Pipeline Viewer', icon: Network },
   { to: '/governance/models', label: 'Model Registry', icon: Boxes },

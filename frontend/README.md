@@ -1,10 +1,35 @@
-# 🩺 AI-Powered Clinical Decision Support System
+# 🩺 Medical AI Copilot
 
 An enterprise-grade AI-powered Clinical Decision Support System (CDSS) that combines Prescription OCR, Retrieval-Augmented Generation (RAG), Large Language Models (LLMs), Disease Prediction, Drug Interaction Analysis, Clinical Reasoning, Explainable AI, Multi-Agent AI, and Medical Knowledge Retrieval to provide evidence-based clinical decision support.
 
 The platform integrates Computer Vision, Machine Learning, Natural Language Processing (NLP), Vector Search, and Generative AI to assist healthcare professionals with prescription analysis, clinical reasoning, risk assessment, treatment recommendations, and patient-centric decision support.
 
 Built using FastAPI, React.js, EasyOCR, Scikit-learn, Sentence Transformers, ChromaDB, SQLAlchemy, and modern AI engineering practices.
+
+
+
+## 🏗️ System Architecture
+                        ┌─────────────────────────────┐
+                        │      React.js Frontend      │
+                        └──────────────┬──────────────┘
+                                       │
+                                       ▼
+                           FastAPI REST API Backend
+                                       │
+         ┌───────────────┬─────────────┬───────────────┐
+         ▼               ▼             ▼               ▼
+   Prescription OCR     RAG        Disease ML      AI Copilot
+         │               │             │               │
+         ▼               ▼             ▼               ▼
+ Medicine Matching   ChromaDB     Scikit-learn     LLM Layer
+         │               │             │               │
+         └───────────────┴─────────────┴───────────────┘
+                         │
+                         ▼
+            Clinical Decision Support Engine
+                         │
+                         ▼
+             Reports • Explainability • Audit
 
 ## ✨ Features
 

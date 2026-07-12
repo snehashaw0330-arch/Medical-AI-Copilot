@@ -317,6 +317,36 @@ class Settings:
     # In-memory TTL+LRU cache of workflow results keyed by a hash of the inputs.
     COPILOT_CACHE_TTL: int = int(os.getenv("COPILOT_CACHE_TTL", "600"))  # seconds
     COPILOT_CACHE_SIZE: int = int(os.getenv("COPILOT_CACHE_SIZE", "128"))
+    # Enrich chat with durable, cross-session patient memory (backend/patient_context/).
+    # Best-effort and non-fatal by contract — a patient_context failure never
+    # blocks or breaks a chat reply.
+    COPILOT_USE_PATIENT_CONTEXT: bool = (
+        os.getenv("COPILOT_USE_PATIENT_CONTEXT", "true").lower() == "true"
+    )
+
+    # --- Patient Context & Conversation Memory (backend/patient_context/) --
+    # Durable, cross-session patient memory: OCR results, medicines, disease
+    # predictions, drug interactions, reports, conversation history, AI
+    # summaries and follow-up recommendations, keyed by the same slugified
+    # patient_id convention as the Digital Twin. Same async URL contract as
+    # every other store — defaults to a local SQLite file; set DATABASE_URL or
+    # PATIENT_CONTEXT_DB_URL to PostgreSQL in production with no code changes.
+    PATIENT_CONTEXT_DB_URL: str = os.getenv(
+        "PATIENT_CONTEXT_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/patient_context/patient_context.db')}",
+        ),
+    )
+    # Number of new chat messages (user + assistant) accumulated since the
+    # last summary that triggers auto-summarization of the conversation.
+    PATIENT_CONTEXT_SUMMARY_TRIGGER: int = int(
+        os.getenv("PATIENT_CONTEXT_SUMMARY_TRIGGER", "10")
+    )
+    # Max items returned per event_type in the patient context detail view.
+    PATIENT_CONTEXT_EVENTS_PER_TYPE: int = int(
+        os.getenv("PATIENT_CONTEXT_EVENTS_PER_TYPE", "50")
+    )
 
     # --- AI Medical Simulation Engine (backend/simulation/) ---------------
     # A "what-if" engine that lets a clinician simulate treatment/patient changes
