@@ -24,6 +24,7 @@ import {
   FlaskConical,
   BadgeCheck,
   Brain,
+  FileSearch,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
@@ -40,6 +41,7 @@ export const NAV_ITEMS = [
   { to: '/predict', label: 'Disease Prediction', icon: Stethoscope },
   { to: '/symptoms', label: 'Symptom Checker', icon: ActivitySquare },
   { to: '/ocr', label: 'Prescription OCR', icon: ScanLine },
+  { to: '/documents', label: 'Document Intelligence', icon: FileSearch },
   { to: '/clinical', label: 'Clinical Decision', icon: BrainCircuit },
   { to: '/reasoning', label: 'Clinical Reasoning', icon: Waypoints },
   { to: '/simulator', label: 'Treatment Simulator', icon: FlaskConical },

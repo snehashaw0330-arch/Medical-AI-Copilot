@@ -69,6 +69,16 @@ pypdf>=4.2                     # PDF text extraction for indexing
 # --- Optional RAG vector backend alternative ---
 # faiss-cpu>=1.8               # FAISS store (register a VectorStore subclass)
 
+# =====================================================================
+# Medical Document Intelligence — backend/document_intelligence/
+# Reuses pypdf (above) for text PDFs, rapidfuzz (above) for lab-test-name
+# matching, and the existing OCR engines for images. No new hard dependency.
+# =====================================================================
+# pymupdf>=1.24                 # optional: rasterize scanned PDFs (no extractable
+                                 # text) to an image so they can be OCR'd; without
+                                 # it, scanned PDFs return an actionable warning
+                                 # asking the user to upload a page image instead.
+
 # --- Optional RAG generation LLMs (offline extractive works without any) ---
 # openai>=1.30                 # set OPENAI_API_KEY + RAG_LLM_PROVIDER=openai (or auto)
 # google-genai>=0.3            # set GEMINI_API_KEY + RAG_LLM_PROVIDER=gemini (or auto)

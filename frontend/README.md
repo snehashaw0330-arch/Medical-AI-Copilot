@@ -1911,6 +1911,110 @@ Trace ─► Why OCR read a word (row confidence)
 
 ---
 
+## 🧾 Medical Document Intelligence
+
+Generalizes document intake beyond prescriptions: **Handwritten Prescriptions,
+Blood Test Reports, CBC, Liver Function Test (LFT), Kidney Function Test
+(KFT), Lipid Profile, Thyroid Reports, Discharge Summaries and Medical
+Certificates** are all detected automatically and analyzed end to end —
+structured lab values with High/Low/Normal grading, labeled sections for
+narrative documents, a RAG-grounded clinical summary, and an AI explanation of
+any abnormal findings.
+
+### What it analyses
+
+- **Lab-style reports** (Blood Test, CBC, LFT, KFT, Lipid Profile, Thyroid):
+  per-test name, patient value, unit, reference range, and High/Low/Normal
+  status, rolled up into an abnormal-findings count.
+- **Narrative documents** (Discharge Summary, Medical Certificate, Handwritten
+  Prescription): common fields (patient, age, gender, date, doctor, hospital)
+  plus a catch-all of labeled sections (e.g. Diagnosis, Discharge Date, Fit
+  From/To) detected from headings in the extracted text.
+- Every document gets a **clinical summary**, **possible clinical meaning**
+  per abnormal finding, **follow-up suggestions**, and a plain-language **AI
+  explanation** — grounded in the RAG knowledge base when available, and
+  always backed by a deterministic, rule-based fallback so results never
+  depend on a configured LLM.
+
+### Backend module — `backend/document_intelligence/` (clean architecture)
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Pydantic contracts — document types, lab results, structured fields, clinical summary, history list/detail/page, stats. |
+| `document_classifier.py` | Keyword-scoring auto-detection of the document type from extracted text (+ filename); callers can override it explicitly. |
+| `report_parser.py` | Text-extraction dispatch (images via the existing OCR engines, PDFs via `pypdf`, with optional `pymupdf` rasterization for scanned PDFs) + heading/label parsing of narrative sections. |
+| `lab_report_analyzer.py` | Regex-based lab-row extraction, fuzzy-matched (`rapidfuzz`) against a built-in reference-range table, graded High/Low/Normal. |
+| `clinical_summary.py` | RAG retrieval + provider-agnostic LLM generation (`backend/llm`) for the summary/explanation, with a deterministic rule-based fallback for possible meanings and follow-up suggestions. |
+| `service.py` | Orchestrates the full workflow and owns persistence: async engine/session setup, CRUD, filtering, pagination, statistics, file retention. |
+| `router.py` | Async FastAPI routes under `/documents`, delegating to the service with logging + exception handling. |
+| `models.py` | SQLAlchemy ORM model (`DocumentRecord`) + portable column types (SQLite **and** PostgreSQL). |
+
+Image/PDF recognition reuses the existing OCR engines directly via a small,
+behavior-preserving addition to `backend/ocr/pipeline.py`
+(`extract_raw_text()`, factored out of the existing `run_pipeline()` so both
+share one recognition code path) — no OCR logic is duplicated.
+
+### Storage & database
+
+- **Default:** a local SQLite file (`backend/document_intelligence/document_intelligence.db`)
+  via the async `aiosqlite` driver. Retained files live in
+  `backend/document_intelligence/images/`.
+- **PostgreSQL (production):** set one environment variable — no code changes:
+
+  ```bash
+  export DATABASE_URL="postgresql+asyncpg://user:pass@host:5432/medisense"
+  pip install asyncpg
+  ```
+
+### API endpoints
+
+| Method & path | Description |
+|---------------|-------------|
+| `POST /documents/analyze` | Upload an image or PDF; runs the full workflow. Query params: `document_type` (override auto-detection), `provider` (OCR engine override). |
+| `GET /documents/history` | Paginated list. Query params: `q`, `document_type`, `status`, `date_from`, `date_to`, `sort` (`newest`/`oldest`/`confidence`), `page`, `page_size`. |
+| `GET /documents/stats` | Aggregate stats: totals, breakdown by document type, total abnormal findings, average confidence. |
+| `GET /documents/{id}` | Full record (raw text, structured fields, lab analysis, clinical summary). |
+| `GET /documents/{id}/image` | Serves the retained original file (image or PDF). |
+| `GET /documents/{id}/json` | Downloads the structured report as JSON. |
+| `DELETE /documents/{id}` | Delete one record (and its retained file). |
+| `DELETE /documents` | Clear the entire document history. |
+
+### Frontend — Medical Document Intelligence (`/documents`)
+
+- Drag-and-drop or browse upload for images and PDFs, with a manual
+  document-type override dropdown (auto-detect by default)
+- Auto-detected type badge + confidence, extraction warnings
+- Structured "Extracted Data" panel (common fields + labeled sections)
+- Lab-results table with color-coded High/Low/Normal badges
+- Collapsible raw extracted text
+- AI Clinical Summary panel: summary, abnormal findings, possible clinical
+  meaning per finding, follow-up suggestions, AI explanation, safety note
+- Evidence Sources panel (RAG source documents + retrieval confidence)
+- "Download Structured Report" (JSON) and a "Recent Documents" history panel
+
+### How the workflow operates
+
+1. **Upload** — `POST /documents/analyze` saves the file, same pattern as the OCR endpoint (deleted after processing; only a retained copy persists).
+2. **Extract Text** — images go through the existing OCR engines; PDFs are read directly via `pypdf`, falling back to OCR of a rasterized page for scanned PDFs.
+3. **Detect Document Type** — `document_classifier.classify()` scores the extracted text against each known type (or uses the caller's override).
+4. **Parse Structured Data** — lab-style types go through `lab_report_analyzer`; narrative types go through `report_parser`'s section parser.
+5. **Retrieve Medical Knowledge (RAG)** — `clinical_summary.generate_summary()` queries the existing knowledge base retriever for relevant context.
+6. **Generate Clinical Summary + Highlight Abnormal Findings** — abnormal lab rows are flagged and paired with a possible clinical meaning.
+7. **Generate AI Explanation** — the provider-agnostic LLM layer (or a deterministic offline fallback) writes the plain-language summary and explanation.
+8. The full result is persisted (best-effort, never blocks the response) and surfaced on the **Medical Document Intelligence** page and history endpoints.
+
+### Configuration (all optional — sensible defaults)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DOCUMENT_INTELLIGENCE_DB_URL` | local SQLite | Persistence store (or `DATABASE_URL` for a shared Postgres). |
+| `DOCUMENT_INTELLIGENCE_IMAGE_DIR` | `backend/document_intelligence/images` | Where retained files are stored. |
+| `DOCUMENT_USE_RAG` | `true` | Enrich the clinical summary with the RAG knowledge base. |
+| `DOCUMENT_USE_LLM` | `true` | Use the provider-agnostic LLM layer for the summary/explanation narrative. |
+| `DOCUMENT_LAB_MATCH_THRESHOLD` | `80` | Fuzzy-match floor (0-100) for resolving a lab row to a known test. |
+
+---
+
 ## 📈 Future Improvements
 
 - PaddleOCR Integration

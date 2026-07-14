@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import DiseasePrediction from './pages/DiseasePrediction'
 import SymptomChecker from './pages/SymptomChecker'
 import PrescriptionOCR from './pages/PrescriptionOCR'
+import DocumentIntelligence from './pages/DocumentIntelligence'
 import ClinicalDecision from './pages/ClinicalDecision'
 import ClinicalReasoning from './pages/ClinicalReasoning'
 import CopilotWorkspace from './pages/CopilotWorkspace'
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="predict" element={<DiseasePrediction />} />
         <Route path="symptoms" element={<SymptomChecker />} />
         <Route path="ocr" element={<PrescriptionOCR />} />
+        <Route path="documents" element={<DocumentIntelligence />} />
         <Route path="clinical" element={<ClinicalDecision />} />
         <Route path="reasoning" element={<ClinicalReasoning />} />
         <Route path="copilot" element={<CopilotWorkspace />} />

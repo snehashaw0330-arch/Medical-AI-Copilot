@@ -101,21 +101,45 @@ def _recognize(image_path: str, provider_name: str | None):
     return raw, table, best.engine
 
 
-def run_pipeline(
-    image_path: str,
-    provider_name: str | None = None,
-    preprocess: bool = True,
-) -> PrescriptionResult:
-    # 1. Preprocess. Callers that have already cleaned the image (e.g. the
-    #    dataset evaluator) pass ``preprocess=False`` to avoid doing it twice.
+def _preprocess_and_recognize(image_path: str, provider_name: str | None, preprocess: bool):
+    """Preprocess + recognize (steps 1-2). Returns (RawOCRResult, engine_table, best_engine)."""
     processed = (
         prepare_for_deep_model(image_path, settings.UPLOAD_DIR)
         if preprocess and settings.ENABLE_PREPROCESSING
         else image_path
     )
+    return _recognize(processed, provider_name)
 
-    # 2. Recognize (cloud provider or local ensemble).
-    raw, engine_table, best_engine = _recognize(processed, provider_name)
+
+def extract_raw_text(
+    image_path: str,
+    provider_name: str | None = None,
+    preprocess: bool = True,
+) -> tuple[str, dict, str]:
+    """Preprocess + recognize only, without medicine-specific matching.
+
+    Returns ``(full_text, engine_table, best_engine)``. Reuses the same
+    preprocess/recognize step ``run_pipeline`` calls internally, so other
+    modules (e.g. ``document_intelligence``) can reuse OCR text recognition
+    without depending on medicine matching.
+    """
+    raw, engine_table, best_engine = _preprocess_and_recognize(
+        image_path, provider_name, preprocess
+    )
+    return raw.full_text, engine_table, best_engine
+
+
+def run_pipeline(
+    image_path: str,
+    provider_name: str | None = None,
+    preprocess: bool = True,
+) -> PrescriptionResult:
+    # 1 + 2. Preprocess (callers that already cleaned the image, e.g. the
+    # dataset evaluator, pass preprocess=False to avoid doing it twice) then
+    # recognize (cloud provider or local ensemble).
+    raw, engine_table, best_engine = _preprocess_and_recognize(
+        image_path, provider_name, preprocess
+    )
 
     # 3 + 4. Medicine intelligence + field extraction per line.
     medicines: list[ExtractedMedicine] = []

@@ -406,6 +406,41 @@ class Settings:
     VERIFICATION_CACHE_TTL: int = int(os.getenv("VERIFICATION_CACHE_TTL", "600"))
     VERIFICATION_CACHE_SIZE: int = int(os.getenv("VERIFICATION_CACHE_SIZE", "256"))
 
+    # --- Medical Document Intelligence (backend/document_intelligence/) ---
+    # Generalizes intake beyond prescriptions: Blood Test / CBC / LFT / KFT /
+    # Lipid Profile / Thyroid reports, Discharge Summaries and Medical
+    # Certificates. Detect type -> extract text -> parse structured data ->
+    # RAG -> clinical summary -> highlight abnormal findings -> AI explanation.
+    # Persistent history of document analyses. Same async URL contract as the
+    # other stores — defaults to a local SQLite file; set DATABASE_URL or
+    # DOCUMENT_INTELLIGENCE_DB_URL to PostgreSQL in production with no code changes.
+    DOCUMENT_INTELLIGENCE_DB_URL: str = os.getenv(
+        "DOCUMENT_INTELLIGENCE_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/document_intelligence/document_intelligence.db')}",
+        ),
+    )
+    # Where analyzed documents (image or PDF) are retained for the detail view.
+    DOCUMENT_INTELLIGENCE_IMAGE_DIR: str = _path(
+        os.getenv("DOCUMENT_INTELLIGENCE_IMAGE_DIR", "backend/document_intelligence/images")
+    )
+    # Enrich the clinical summary with RAG knowledge-base context when available.
+    DOCUMENT_USE_RAG: bool = (
+        os.getenv("DOCUMENT_USE_RAG", "true").lower() == "true"
+    )
+    # Use the provider-agnostic LLM layer for the clinical summary + AI
+    # explanation narrative. Falls back to a deterministic, rule-based
+    # composition when no provider is configured (offline-safe by design).
+    DOCUMENT_USE_LLM: bool = (
+        os.getenv("DOCUMENT_USE_LLM", "true").lower() == "true"
+    )
+    # Fuzzy-match floor (0..100) for resolving a detected lab-report row to a
+    # known test in the built-in reference-range table.
+    DOCUMENT_LAB_MATCH_THRESHOLD: float = float(
+        os.getenv("DOCUMENT_LAB_MATCH_THRESHOLD", "80")
+    )
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(
@@ -425,3 +460,4 @@ settings = Settings()
 Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 Path(settings.HISTORY_IMAGE_DIR).mkdir(parents=True, exist_ok=True)
 Path(settings.REPORTS_IMAGE_DIR).mkdir(parents=True, exist_ok=True)
+Path(settings.DOCUMENT_INTELLIGENCE_IMAGE_DIR).mkdir(parents=True, exist_ok=True)
