@@ -33,6 +33,7 @@ Built using FastAPI, React.js, EasyOCR, Scikit-learn, Sentence Transformers, Chr
 
 ## ✨ Features
 
+- 📚 **Evidence-Based Medical Response Engine** — every AI-generated medical response is grounded in evidence retrieved from the RAG knowledge base **before** it is written: retrieve → rerank (semantic + lexical) → cite → generate. Returns the AI response, numbered **citations** with highlighted matching terms, **expandable retrieved chunks**, a **confidence score** derived from evidence strength, and full source attribution — available as a single query or a session-aware chat
 - 🛡️ **AI Hallucination Detection & Evidence Verification** — every AI-generated response can be verified against the retrieved medical knowledge base before it is trusted: the engine breaks the answer into atomic **claims**, scores each against the evidence (semantic + lexical), and reports **evidence coverage**, **citation strength**, a **hallucination-risk** category (very low → critical), a **confidence** score, plus **unsupported claims**, **contradictions** and **missing references** — with unsupported statements highlighted in red
 - 🧪 **AI Medical Simulation Engine** — a "what-if" engine that lets a clinician simulate treatment changes (dose change, replace / remove / add) and patient changes (age, weight, pregnancy, renal or hepatic impairment, allergies) across **multiple scenarios**, and see the projected drug interactions, disease risk, clinical recommendations, treatment suggestions, side effects, contraindications and RAG evidence — with a confidence breakdown — **before deciding**. Compares every scenario (and A vs B) against the baseline.
 - 🧑‍⚕️ **AI Medical Copilot Workspace** — a session-scoped orchestrator that, on every upload, automatically runs the **full clinical pipeline** (OCR → medicine extraction → drug interactions → disease prediction → RAG evidence → clinical decision → AI summary → treatment → follow-up → medical report), **remembers the current patient for the session**, and presents everything in a three-panel workspace with a conversation, an AI reasoning view and a live AI Activity Timeline
@@ -86,6 +87,7 @@ Built using FastAPI, React.js, EasyOCR, Scikit-learn, Sentence Transformers, Chr
 medical-ai-assistant/
 │
 ├── backend/
+│   ├── evidence_engine/ # Evidence-Based Medical Response Engine (retriever, reranker, citation_builder, response_builder, service, router, schemas)
 │   ├── evidence_verification/  # Hallucination Detection & Evidence Verification (verification_engine, hallucination_detector, evidence_ranker, citation_builder, confidence_calculator, service, router, schemas)
 │   ├── simulation/     # AI Medical Simulation Engine (simulation_engine, treatment_engine, risk_engine, recommendation_engine, patient_model, service, router, schemas)
 │   ├── copilot/        # AI Medical Copilot Workspace (workflow, planner, reasoning, context, memory, summary, service, router, schemas)
@@ -171,6 +173,7 @@ http://127.0.0.1:8000/docs
 
 ## 📸 Modules
 
+- Evidence-Based Medical Response Engine
 - Clinical AI Audit, Explainability & Governance
 - Medical Digital Twin
 - Multi-Agent AI Medical Copilot
@@ -2012,6 +2015,89 @@ share one recognition code path) — no OCR logic is duplicated.
 | `DOCUMENT_USE_RAG` | `true` | Enrich the clinical summary with the RAG knowledge base. |
 | `DOCUMENT_USE_LLM` | `true` | Use the provider-agnostic LLM layer for the summary/explanation narrative. |
 | `DOCUMENT_LAB_MATCH_THRESHOLD` | `80` | Fuzzy-match floor (0-100) for resolving a lab row to a known test. |
+
+---
+
+## 📚 Evidence-Based Medical Response Engine
+
+Every AI-generated medical response is grounded in evidence retrieved from the
+RAG knowledge base **before** it is written. Instead of asking an LLM to
+answer directly, the engine runs a strict retrieve → rerank → cite → generate
+pipeline and returns the response together with the exact evidence behind it —
+reducing hallucination and making every answer auditable.
+
+### Architecture
+
+```
+ User Question
+      │
+      ▼
+ Retrieve relevant documents from ChromaDB     (retriever.py — reuses backend/rag)
+      │
+      ▼
+ Rank retrieved passages using semantic
+ similarity (+ lexical overlap)                (reranker.py)
+      │
+      ▼
+ Build numbered citations with highlighted
+ matching terms                                (citation_builder.py)
+      │
+      ▼
+ Provide top-k evidence to the LLM and
+ generate a grounded response                  (response_builder.py — backend/llm)
+      │
+      ▼
+ Return response + citations + confidence
+ score + retrieved chunks                      (service.py, router.py)
+```
+
+### Backend module — `backend/evidence_engine/` (clean architecture)
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Pydantic contracts — request/response models, retrieved chunks, citations, history list/detail/page. |
+| `retriever.py` | Thin async adapter over the existing `backend/rag` retriever (embedder + ChromaDB) — no second vector store or model. |
+| `reranker.py` | Pure hybrid reranking: blends the original embedding similarity with a lexical query/chunk term-overlap score, no extra model required. |
+| `citation_builder.py` | Builds numbered citations (`[1]`, `[2]`, …) from the reranked chunks, with matching query terms **highlighted** in each snippet. |
+| `response_builder.py` | Builds the grounded prompt, generates the response via the provider-agnostic LLM layer (`backend/llm`), falls back to a deterministic extractive answer when no LLM is configured, and computes a confidence score from evidence strength alone. |
+| `service.py` | Orchestrates the full pipeline, owns the in-memory chat-session store (for `/evidence/chat` follow-ups) and async persistence (SQLAlchemy). |
+| `router.py` | Async FastAPI routes under `/evidence`, delegating to the service with logging + exception handling. |
+
+Retrieval reuses `backend/rag`'s embedder (`all-MiniLM-L6-v2`) and ChromaDB
+collection directly — this module never re-embeds or re-indexes documents.
+Generation reuses the provider-agnostic LLM layer (`backend/llm`), so it is
+offline-safe by design: with no cloud/local model configured, responses are
+composed directly from the retrieved evidence text.
+
+### API endpoints
+
+| Method & path | Description |
+|---------------|-------------|
+| `POST /evidence/query` | Retrieve evidence for a question and generate a single grounded, cited response. |
+| `POST /evidence/chat` | Same pipeline, but session-aware — pass the returned `session_id` back to continue the conversation with context. |
+| `GET /evidence/history` | Paginated list of past queries/chats. Query params: `page`, `page_size`. |
+| `GET /evidence/{id}` | Full stored result for one past query (response, citations, retrieved chunks, confidence). |
+| `DELETE /evidence/history` | Clear the entire evidence-query history. |
+
+### Frontend — Evidence Explorer (`/evidence`)
+
+- Single Query / Chat Session toggle
+- AI Response panel with **Copy Response** and **Download Report** (PDF)
+- Confidence indicator (evidence-strength meter)
+- Supporting Sources badges + numbered citation cards with highlighted matching terms
+- Expandable Retrieved Chunks (collapsible per-passage detail with relevance score)
+- Recent-queries history panel
+
+### Configuration (all optional — sensible defaults)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `EVIDENCE_ENGINE_DB_URL` | local SQLite | Persistence store (or `DATABASE_URL` for a shared Postgres). |
+| `EVIDENCE_ENGINE_TOP_K` | `6` | Chunks retrieved from the vector store before reranking. |
+| `EVIDENCE_ENGINE_RERANK_TOP_K` | `4` | Chunks kept after reranking (used for citations + generation). |
+| `EVIDENCE_ENGINE_MIN_SIMILARITY` | `0.15` | Similarity floor (0..1) below which a chunk is dropped. |
+| `EVIDENCE_ENGINE_SESSION_TTL` | `3600` | Seconds an idle chat session is retained in memory. |
+| `EVIDENCE_ENGINE_MAX_SESSIONS` | `300` | Max concurrent chat sessions (LRU eviction of the oldest). |
 
 ---
 

@@ -22,6 +22,7 @@ from backend.digital_twin.router import router as digital_twin_router
 from backend.ai_governance import AuditMiddleware, get_service
 from backend.ai_governance.router import router as governance_router
 from backend.document_intelligence.router import router as documents_router
+from backend.evidence_engine.router import router as evidence_engine_router
 from backend.config import settings
 
 app = FastAPI(title="Medical AI Assistant")
@@ -71,3 +72,4 @@ app.include_router(agents_router)    # /agents/*       (multi-agent medical copi
 app.include_router(digital_twin_router)  # /digital-twin/* (patient digital twin)
 app.include_router(governance_router)    # /governance/*   (AI audit + explainability)
 app.include_router(documents_router)     # /documents/*    (medical document intelligence)
+app.include_router(evidence_engine_router)  # /evidence/*  (evidence-based medical response engine)

@@ -47,4 +47,7 @@ backend/digital_twin/*.db
 # AI Governance store (decision traces, audit logs, registries) — local SQLite DB
 backend/ai_governance/*.db
 
+# Evidence-Based Medical Response Engine history store — local SQLite DB
+backend/evidence_engine/*.db
+
 *.zip

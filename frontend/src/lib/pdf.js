@@ -115,3 +115,81 @@ export async function generatePrescriptionPdf({ meds = [], fields = {}, score = 
   line(DISCLAIMER, { size: 9, color: [130, 130, 130], gap: 13 })
   doc.save(`medisense-report-${(fileName || 'prescription').replace(/\.[^.]+$/, '')}.pdf`)
 }
+
+/**
+ * Build and download an Evidence Engine report PDF: the grounded AI response,
+ * its numbered citations and the retrieved evidence chunks with scores.
+ * @param {object} o
+ * @param {string} o.query
+ * @param {string} o.response
+ * @param {number} o.confidenceScore  0..100
+ * @param {Array}  o.citations        [{ citation_id, source_title, snippet, similarity_score }]
+ * @param {Array}  o.retrievedChunks  [{ chunk_id, source_title, text, similarity_score, rerank_score }]
+ * @param {string} [o.timestamp]
+ */
+export async function generateEvidenceReportPdf({
+  query = '', response = '', confidenceScore = 0, citations = [], retrievedChunks = [], timestamp,
+}) {
+  const { jsPDF } = await import('jspdf')
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+  const W = doc.internal.pageSize.getWidth()
+  const H = doc.internal.pageSize.getHeight()
+  const M = 40
+  let y = M
+  const ensure = (s) => { if (y + s > H - M) { doc.addPage(); y = M } }
+  const line = (txt, { size = 11, color = [40, 40, 40], gap = 16, bold = false } = {}) => {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal')
+    doc.setFontSize(size)
+    doc.setTextColor(...color)
+    doc.splitTextToSize(String(txt).replace(/\*\*/g, ''), W - M * 2).forEach((l) => { ensure(gap); doc.text(l, M, y); y += gap })
+  }
+
+  doc.setFillColor(37, 99, 235)
+  doc.rect(0, 0, W, 70, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.text('MediSense', M, 34)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.text('Evidence-Based Medical Response Report', M, 52)
+  doc.setFontSize(9); doc.text(new Date(timestamp || Date.now()).toLocaleString(), W - M, 34, { align: 'right' })
+  y = 92
+
+  line('Question', { size: 12, bold: true, gap: 18, color: [37, 99, 235] })
+  line(query || '-', { size: 11, gap: 15 })
+  y += 6
+
+  line(`Confidence Score: ${Math.round(confidenceScore)}%    Sources: ${citations.length}`,
+    { size: 11, bold: true, gap: 18 })
+
+  y += 4; line('AI Response', { size: 14, bold: true, gap: 20, color: [37, 99, 235] })
+  line(response || '-', { size: 11, gap: 15 })
+
+  if (citations.length) {
+    y += 8; line('Supporting Citations', { size: 14, bold: true, gap: 20, color: [37, 99, 235] })
+    citations.forEach((c) => {
+      ensure(40)
+      line(`[${c.citation_id}] ${c.source_title}  (${Math.round((c.similarity_score || 0) * 100)}% match)`,
+        { size: 11, bold: true, gap: 15 })
+      if (c.snippet) line(c.snippet, { size: 9, color: [110, 110, 110], gap: 13 })
+      y += 4
+    })
+  }
+
+  if (retrievedChunks.length) {
+    y += 8; line('Retrieved Evidence Chunks', { size: 14, bold: true, gap: 20, color: [37, 99, 235] })
+    retrievedChunks.forEach((c, i) => {
+      ensure(40)
+      const score = Math.round((c.rerank_score || c.similarity_score || 0) * 100)
+      line(`${i + 1}. ${c.source_title} — relevance ${score}%`, { size: 10, bold: true, gap: 14 })
+      line(c.text, { size: 9, color: [110, 110, 110], gap: 13 })
+      y += 4
+    })
+  }
+
+  y += 10; ensure(60); doc.setDrawColor(220); doc.line(M, y, W - M, y); y += 16
+  line(
+    'This response is generated from retrieved medical knowledge-base evidence and is informational '
+    + 'only. It is not a substitute for professional medical advice — always confirm with a licensed '
+    + 'pharmacist or doctor before acting on it.',
+    { size: 9, color: [130, 130, 130], gap: 13 },
+  )
+  doc.save(`medisense-evidence-report-${Date.now()}.pdf`)
+}

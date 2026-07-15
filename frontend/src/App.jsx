@@ -10,6 +10,7 @@ import ClinicalReasoning from './pages/ClinicalReasoning'
 import CopilotWorkspace from './pages/CopilotWorkspace'
 import TreatmentSimulator from './pages/TreatmentSimulator'
 import EvidenceVerification from './pages/EvidenceVerification'
+import EvidenceExplorer from './pages/EvidenceExplorer'
 import MedicalReports from './pages/MedicalReports'
 import PrescriptionHistory from './pages/PrescriptionHistory'
 import DatasetEvaluation from './pages/DatasetEvaluation'
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="copilot" element={<CopilotWorkspace />} />
         <Route path="simulator" element={<TreatmentSimulator />} />
         <Route path="verification" element={<EvidenceVerification />} />
+        <Route path="evidence" element={<EvidenceExplorer />} />
         <Route path="reports" element={<MedicalReports />} />
         <Route path="history" element={<PrescriptionHistory />} />
         <Route path="dataset" element={<DatasetEvaluation />} />

@@ -441,6 +441,35 @@ class Settings:
         os.getenv("DOCUMENT_LAB_MATCH_THRESHOLD", "80")
     )
 
+    # --- Evidence-Based Medical Response Engine (backend/evidence_engine/) -
+    # Grounds every AI-generated response in evidence retrieved from the RAG
+    # knowledge base: retrieve -> rerank -> cite -> generate, with a confidence
+    # score derived from evidence strength. Reuses the existing RAG retriever
+    # and provider-agnostic LLM layer — no separate vector store or model.
+    # Persistent history of evidence queries/chats. Same async URL contract as
+    # every other store — defaults to a local SQLite file; set DATABASE_URL or
+    # EVIDENCE_ENGINE_DB_URL to PostgreSQL in production with no code changes.
+    EVIDENCE_ENGINE_DB_URL: str = os.getenv(
+        "EVIDENCE_ENGINE_DB_URL",
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite+aiosqlite:///{_path('backend/evidence_engine/evidence_engine.db')}",
+        ),
+    )
+    # Number of chunks retrieved from the vector store before reranking.
+    EVIDENCE_ENGINE_TOP_K: int = int(os.getenv("EVIDENCE_ENGINE_TOP_K", "6"))
+    # Number of chunks kept after reranking (the evidence actually cited/used
+    # for generation).
+    EVIDENCE_ENGINE_RERANK_TOP_K: int = int(os.getenv("EVIDENCE_ENGINE_RERANK_TOP_K", "4"))
+    # Chunks below this similarity (0..1) are dropped as irrelevant.
+    EVIDENCE_ENGINE_MIN_SIMILARITY: float = float(
+        os.getenv("EVIDENCE_ENGINE_MIN_SIMILARITY", "0.15")
+    )
+    # In-memory chat session store: how long an idle session is retained and
+    # how many concurrent sessions to keep (LRU eviction of the oldest).
+    EVIDENCE_ENGINE_SESSION_TTL: int = int(os.getenv("EVIDENCE_ENGINE_SESSION_TTL", "3600"))
+    EVIDENCE_ENGINE_MAX_SESSIONS: int = int(os.getenv("EVIDENCE_ENGINE_MAX_SESSIONS", "300"))
+
     # --- Pipeline tuning ---------------------------------------------------
     # A medicine match below this combined score (0-100) is flagged needs_review.
     MEDICINE_MATCH_THRESHOLD: float = float(

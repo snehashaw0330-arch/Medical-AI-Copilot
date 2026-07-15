@@ -25,6 +25,7 @@ import {
   BadgeCheck,
   Brain,
   FileSearch,
+  Library,
 } from 'lucide-react'
 
 export const NAV_ITEMS = [
@@ -46,6 +47,7 @@ export const NAV_ITEMS = [
   { to: '/reasoning', label: 'Clinical Reasoning', icon: Waypoints },
   { to: '/simulator', label: 'Treatment Simulator', icon: FlaskConical },
   { to: '/verification', label: 'Evidence Verification', icon: BadgeCheck },
+  { to: '/evidence', label: 'Evidence Explorer', icon: Library },
   { to: '/reports', label: 'Medical Reports', icon: FileText },
   { to: '/history', label: 'Prescription History', icon: History },
   { to: '/dataset', label: 'Dataset Evaluation', icon: Database },
