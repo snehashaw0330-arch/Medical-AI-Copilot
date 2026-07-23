@@ -37,6 +37,7 @@ class MemoryKeys:
     KNOWLEDGE = "knowledge"           # Knowledge (RAG) Agent output
     CLINICAL = "clinical"             # Clinical Decision Agent output
     EXPLANATION = "explanation"       # Explainability Agent output
+    EVIDENCE_VERIFICATION = "evidence_verification"  # Evidence Verification Agent output
     REPORT = "report"                 # Report Agent output
     AUDIT = "audit"                   # Audit Agent output
 

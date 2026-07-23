@@ -1429,12 +1429,16 @@ failure is logged and never blocks or breaks the OCR response
 ## 🤖 Multi-Agent AI Medical Copilot
 
 The assistant is also a **true Agentic AI system**: instead of one monolith doing
-everything, nine **specialised agents** collaborate over an **event-driven
-pipeline**, sharing a **blackboard memory**, coordinated by a workflow engine and
-observed live from the **AI Agent Monitor** page. Crucially, the agents
-**orchestrate the existing services** (OCR, disease prediction, drug interactions,
-RAG, clinical decision support, reports) — nothing was removed or rewritten, and
-every existing API still works exactly as before.
+everything, ten **specialised agents** — OCR, Medicine (Recommendation), Disease
+Prediction, Drug Interaction, Medical Knowledge, Clinical Decision, Explainability,
+**Evidence Verification**, Report Generation and Audit — collaborate over an
+**event-driven pipeline**, sharing a **blackboard memory**, coordinated by a
+workflow engine and observed live from the **AI Agent Monitor** page (pipeline
+view, a true **Execution Timeline**, and an **Agent Status Dashboard**).
+Crucially, the agents **orchestrate the existing services** (OCR, disease
+prediction, drug interactions, RAG, clinical decision support, evidence
+verification, reports) — nothing was removed or rewritten, and every existing
+API still works exactly as before.
 
 ### Architecture
 
@@ -1453,11 +1457,15 @@ every existing API still works exactly as before.
              │                            ▼                              │
    ┌─────────┴──────────────────────  Agents  ──────────────────────────┴────────┐
    │ OCR → Medicine → (Disease ‖ Drug-Interaction) → Knowledge → Clinical →       │
-   │ Explainability → Report → Audit    (each delegates to an existing service)   │
+   │ (Explainability ‖ Evidence Verification) → Report → Audit                    │
+   │                        (each delegates to an existing service)               │
    └──────────────────────────────────┬───────────────────────────────────────────┘
                                        │ lifecycle events
                                        ▼
                                    Run Store  ───►  GET /agents/runs/{id}  ───► AI Agent Monitor (live)
+                                       │
+                                       ▼
+                          AgentHealthMonitor  ───►  GET /agents/health  ───► Agent Status Dashboard
 ```
 
 ### Agent workflow (event-driven, with concurrency)
@@ -1479,7 +1487,10 @@ Prescription / symptoms / medicines
         ▼
  Clinical Agent         → clinical            (recommendations, risk)
         ▼
- Explainability Agent   → explanation         (WHY each conclusion, with evidence)
+ ┌──────────────────────┬──────────────────────────────┐   ← concurrent stage (asyncio.gather)
+ Explainability Agent    Evidence Verification Agent
+ → explanation           → evidence_verification (hallucination risk, citations, confidence
+ └──────────────────────┴──────────────────────────────┘    — verifies the Clinical Agent's summary)
         ▼
  Report Agent           → report              (PDF / JSON / HTML)
         ▼
@@ -1521,15 +1532,16 @@ Client        Router      Manager     Engine      Agent(i)     Memory     EventB
 | `task_router.py` | Classifies the request and returns the `RoutePlan` (stages) to run. |
 | `workflow_engine.py` | Executes stages sequentially, agents **within a stage concurrently**; emits lifecycle events; computes overall confidence. |
 | `agent_registry.py` | Lazy discovery/construction of agents from specs; honours enable/disable; exposes metadata without heavy imports. |
-| `run_store.py` | In-memory live run state, updated from the event bus; powers the monitor. |
+| `run_store.py` | In-memory live run state, updated from the event bus; powers the monitor (per-agent `started_at`/`finished_at` are recorded live, not just at finalize, so the Execution Timeline renders during a running pipeline too). |
+| `health_monitor.py` | `AgentHealthMonitor` — calls each agent's `health_check()` (RAG index, model files, datasets, OCR stack, …), caches results for 30s, and rolls them into an aggregate status for `GET /agents/health`. |
 | `logger.py` | Run-scoped structured logging. |
-| `schemas.py` | Pydantic contracts (run state, records, timeline, registry) — the frontend boundary. |
+| `schemas.py` | Pydantic contracts (run state, records, timeline, registry, `AgentHealth`/`HealthReport`) — the frontend boundary. |
 | `security.py` | Input validation, output sanitisation, **RAG prompt-injection defence**. |
 | `router.py` | FastAPI routes under `/agents`. |
 | `config/agent_config.py` | Per-agent enable/disable + timeouts (`AGENTS_DISABLED`, `AGENT_TIMEOUT`). |
 | `config/llm_config.py` | LLM provider selection + credentials from env (`AGENT_LLM_PROVIDER`). |
 | `config/workflow_config.py` | The declarative pipeline (stages) — reshape the flow without engine changes. |
-| `implementations/*.py` | The nine agents (`ocr`, `medicine`, `disease`, `drug_interaction`, `knowledge`, `clinical`, `explainability`, `report`, `audit`) — each delegates to an existing service. |
+| `implementations/*.py` | The ten agents (`ocr`, `medicine`, `disease`, `drug_interaction`, `knowledge`, `clinical`, `explainability`, `evidence_verification`, `report`, `audit`) — each delegates to an existing service and implements `health_check()`. |
 | `tests/test_agents.py` | Unit + integration + workflow tests (run with `python -m backend.agents.tests.test_agents`). |
 
 > **Note on `config/`:** the project already has a `backend/config.py` module, so
@@ -1560,8 +1572,14 @@ Client        Router      Manager     Engine      Agent(i)     Memory     EventB
 | **Medical Knowledge** | `rag.rag_service` — **the only RAG caller** | `medicines`,`disease` → `knowledge` |
 | **Clinical Decision** | `clinical_decision` | everything → `clinical` |
 | **Explainability** | grounded reasoning + injected LLM | all outputs → `explanation` |
+| **Evidence Verification** | `evidence_verification.verify_response()` | `clinical`,`knowledge` → `evidence_verification` |
 | **Report** | `report_generator` (PDF/JSON/HTML) | `ocr_result`,`clinical`,`interactions` → `report` |
 | **Audit** | the execution trail | records → `audit` |
+
+Every agent also implements `health_check()` — a cheap, side-effect-free probe
+of its underlying dependency (the RAG index for Knowledge/Evidence Verification,
+the disease model file, the interaction dataset, the OCR stack, the medicine
+dataset, the LLM layer, …) that never runs the agent's real pipeline logic.
 
 ### API endpoints
 
@@ -1569,16 +1587,23 @@ Client        Router      Manager     Engine      Agent(i)     Memory     EventB
 |---------------|---------|
 | `POST /agents/run` | Start a run from an image and/or symptoms/medicines/text (multipart). Returns `{ run_id }` (or the final state with `?wait=true`). |
 | `GET /agents/runs/{run_id}` | Live/final run state — pipeline, timeline, logs, confidence (polled by the monitor). |
-| `GET /agents/runs` | Recent runs. |
+| `GET /agents/runs` | Recent runs (now surfaced in the frontend's Agent Status Dashboard). |
 | `GET /agents/registry` | Agents, workflow stages and available LLM providers. |
-| `GET /agents/health` | Subsystem health. |
+| `GET /agents/health` | Per-agent liveness probes (`AgentHealth[]`) + an aggregate `HealthReport` (`ok`/`degraded`/`down`). Pass `?force=true` to bypass the 30s cache. |
 
 ### Frontend — AI Agent Monitor (`/agents`)
 
-An animated pipeline of the nine agent nodes (pending → running → completed /
-skipped / failed with per-agent latency + confidence), an overall progress bar,
-current-agent indicator, a **timeline** of milestones, a **result summary** and
-live **execution logs** — polled from `GET /agents/runs/{id}`.
+- An animated pipeline of the ten agent nodes (pending → running → completed /
+  skipped / failed with per-agent latency + confidence), an overall progress bar,
+  current-agent indicator, a **result summary** and live **execution logs**.
+- **Execution Timeline** — a true time-axis view built from each agent's actual
+  `started_at`/`finished_at`, rendered as horizontal bars; concurrent agents
+  (Disease ‖ Drug-Interaction, Explainability ‖ Evidence Verification) show as
+  visibly overlapping bars, not just near-identical log timestamps.
+- **Agent Status Dashboard** — a live health grid (one tile per agent: healthy /
+  unavailable / disabled, from `GET /agents/health`, auto-refreshed every 30s)
+  plus a **recent runs** panel (`GET /agents/runs`) — click any past run to load
+  it back into the monitor.
 
 ### Design principles & guarantees
 
@@ -1591,6 +1616,10 @@ live **execution logs** — polled from `GET /agents/runs/{id}`.
   the system runs anywhere. Configure a provider with `AGENT_LLM_PROVIDER`.
 - **Resilient** — agent failures/timeouts are isolated into the run record; the
   pipeline always completes and degrades gracefully.
+- **Observable** — every agent reports its own liveness via `health_check()`
+  (distinct from admin enable/disable), rolled up into `GET /agents/health` and
+  the Agent Status Dashboard, so a broken dependency is visible before a run
+  ever starts, not just after an agent fails mid-pipeline.
 - **Performant** — async throughout; independent agents run concurrently; RAG
   queries are cached.
 - **Secure** — inputs validated, outputs sanitised, RAG queries defended against

@@ -102,3 +102,12 @@ class ExplainabilityAgent(BaseAgent):
             confidence=None,
             details={"reason_count": len(reasons), "llm_provider": ctx.llm.name},
         )
+
+    async def health_check(self) -> tuple[bool, str]:
+        try:
+            from backend.llm.factory import get_llm
+
+            llm = get_llm()
+            return llm.available(), f"LLM provider: {llm.name} (offline fallback always available)."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"LLM layer failed to load: {exc}"

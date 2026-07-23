@@ -79,3 +79,11 @@ class ClinicalAgent(BaseAgent):
             confidence=confidence,
             details={"risk_level": risk_level, "red_flags": len(data.get("red_flags", []))},
         )
+
+    async def health_check(self) -> tuple[bool, str]:
+        try:
+            import backend.clinical_decision  # noqa: F401 — deterministic rules engine
+
+            return True, "Rule-based clinical engine loaded."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Clinical decision engine failed to load: {exc}"

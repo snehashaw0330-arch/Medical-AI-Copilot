@@ -53,6 +53,17 @@ class BaseAgent(ABC):
     async def process(self, ctx: AgentContext) -> AgentOutcome:
         """Do the agent's work, reading/writing shared memory. Return an outcome."""
 
+    async def health_check(self) -> tuple[bool, str]:
+        """Cheap liveness probe for the agent's underlying dependency.
+
+        Default: no dedicated dependency to probe, so the agent is assumed
+        available. Agents that wrap a real external/loadable dependency (a
+        model file, a dataset, the RAG index, an OCR engine) override this
+        with a real, side-effect-free check. Never raises — a failing probe
+        should report ``(False, reason)``, not crash health monitoring.
+        """
+        return True, "No dedicated health probe; assumed available."
+
     async def execute(self, ctx: AgentContext) -> AgentRecord:
         """Run :meth:`process` with timing, events, timeout and error isolation."""
         record = AgentRecord(name=self.name, title=self.title, status=AgentStatus.RUNNING)

@@ -447,6 +447,13 @@ export async function getAgentRegistry() {
   return data
 }
 
+// Per-agent liveness probes (RAG index, model files, datasets, OCR stack, …)
+// plus an aggregate status — powers the Agent Status Dashboard.
+export async function getAgentHealth(force = false) {
+  const { data } = await API.get('/agents/health', { params: force ? { force: true } : undefined })
+  return data
+}
+
 // ---------------- Digital Twin ----------------
 // A continuously-evolving virtual health profile per patient, aggregated from
 // every prior analysis (OCR, disease, medicines, interactions, clinical, reports)

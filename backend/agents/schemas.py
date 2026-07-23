@@ -7,11 +7,15 @@ timeline, the pipeline diagram and the audit log all speak the same shapes.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class AgentStatus(str, Enum):
@@ -134,3 +138,26 @@ class RunListItem(BaseModel):
     created_at: datetime
     duration_ms: float = 0.0
     overall_confidence: float | None = None
+
+
+class AgentHealth(BaseModel):
+    """Live liveness/availability probe result for one agent."""
+
+    name: str
+    title: str = ""
+    healthy: bool = True
+    enabled: bool = True
+    detail: str = ""
+    checked_at: datetime = Field(default_factory=_utcnow)
+
+
+class HealthReport(BaseModel):
+    """Aggregate health snapshot across every registered agent (``GET /agents/health``)."""
+
+    status: str = "ok"           # "ok" | "degraded" | "down"
+    total_agents: int = 0
+    healthy_agents: int = 0
+    enabled_agents: int = 0
+    llm_provider: str = "offline"
+    agents: list[AgentHealth] = []
+    checked_at: datetime = Field(default_factory=_utcnow)

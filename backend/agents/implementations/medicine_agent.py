@@ -73,3 +73,14 @@ class MedicineAgent(BaseAgent):
             confidence=confidence,
             details={"medicines": names},
         )
+
+    async def health_check(self) -> tuple[bool, str]:
+        try:
+            import asyncio
+
+            from backend.ocr.medicine_intelligence import get_index
+
+            index = await asyncio.to_thread(get_index)
+            return True, f"Medicine dataset loaded ({len(index.df)} entries)."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Medicine dataset failed to load: {exc}"

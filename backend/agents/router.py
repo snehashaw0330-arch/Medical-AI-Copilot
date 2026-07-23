@@ -6,7 +6,7 @@ Endpoints
 * ``GET  /agents/runs``           — recent runs (for the monitor's history)
 * ``GET  /agents/runs/{run_id}``  — live state of a run (polled by the monitor)
 * ``GET  /agents/registry``       — agents, workflow stages + LLM providers
-* ``GET  /agents/health``         — subsystem health
+* ``GET  /agents/health``         — per-agent liveness probes + aggregate status
 
 The upload path mirrors the existing OCR route (same allowed types, same upload
 dir). Inputs are validated + sanitised (security requirement). All failures
@@ -24,8 +24,9 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from backend.agents.agent_manager import get_manager
+from backend.agents.health_monitor import get_health_monitor
 from backend.agents.logger import get_logger
-from backend.agents.schemas import RegistryInfo, RunCreated, RunListItem, RunState
+from backend.agents.schemas import HealthReport, RegistryInfo, RunCreated, RunListItem, RunState
 from backend.agents.security import sanitize_text, sanitize_tokens, validate_image
 from backend.config import settings
 
@@ -111,13 +112,10 @@ async def registry() -> RegistryInfo:
     return get_manager().registry_info()
 
 
-@router.get("/health")
-async def health() -> dict:
-    """Subsystem health for dashboards/ops."""
-    info = get_manager().registry_info()
-    return {
-        "status": "ok",
-        "agents": len(info.agents),
-        "enabled_agents": sum(1 for a in info.agents if a.enabled),
-        "llm_provider": info.llm_provider,
-    }
+@router.get("/health", response_model=HealthReport)
+async def health(
+    force: bool = Query(default=False, description="Bypass the cache and re-probe every agent."),
+) -> HealthReport:
+    """Per-agent liveness probes (RAG index, model files, datasets, OCR stack, …)
+    plus an aggregate status, for the Agent Status Dashboard and ops."""
+    return await get_health_monitor().check_all(force=force)

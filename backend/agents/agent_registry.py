@@ -72,6 +72,11 @@ AGENT_SPECS: dict[str, AgentSpec] = {
         "Explain WHY each conclusion was reached, with the evidence and confidence behind it.",
         (K.DISEASE, K.MEDICINES, K.INTERACTIONS, K.KNOWLEDGE, K.CLINICAL), (K.EXPLANATION,),
         f"{_IMPL}.explainability_agent", "ExplainabilityAgent"),
+    ac.EVIDENCE_VERIFICATION: AgentSpec(
+        ac.EVIDENCE_VERIFICATION, "Evidence Verification Agent",
+        "Verify the clinical assessment against retrieved evidence — hallucination risk, citations and confidence.",
+        (K.CLINICAL, K.KNOWLEDGE, K.MEDICINES, K.DISEASE), (K.EVIDENCE_VERIFICATION,),
+        f"{_IMPL}.evidence_verification_agent", "EvidenceVerificationAgent"),
     ac.REPORT: AgentSpec(
         ac.REPORT, "Report Agent",
         "Generate the durable clinical report (PDF / JSON / HTML) from the assembled findings.",

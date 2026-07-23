@@ -50,3 +50,14 @@ class DiseaseAgent(BaseAgent):
                    if top else "No condition matched the symptoms.")
         return AgentOutcome(summary=summary, confidence=confidence,
                             details={"predictions": predictions[:3]})
+
+    async def health_check(self) -> tuple[bool, str]:
+        try:
+            import asyncio
+
+            from backend.disease.service import get_service
+
+            svc = await asyncio.to_thread(get_service)
+            return True, f"Disease model loaded ({len(svc.classes)} conditions)."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Disease model unavailable: {exc}"

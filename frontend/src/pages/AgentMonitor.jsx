@@ -17,6 +17,10 @@ import {
   X,
   ChevronRight,
   Gauge,
+  HeartPulse,
+  GanttChartSquare,
+  History as HistoryIcon,
+  RefreshCw,
 } from 'lucide-react'
 import Card, { CardHeader } from '@/ui/Card'
 import Button from '@/ui/Button'
@@ -27,8 +31,12 @@ import {
   startAgentRun,
   getAgentRun,
   getAgentRegistry,
+  getAgentHealth,
+  getAgentRuns,
 } from '@/lib/api'
-import { errorMessage, titleCase, confidenceColor } from '@/lib/utils'
+import { errorMessage, titleCase, confidenceColor, formatDate } from '@/lib/utils'
+
+const HEALTH_POLL_MS = 30_000
 
 // Agent status → visual treatment.
 const STATUS = {
@@ -81,8 +89,69 @@ function AgentNode({ agent, isCurrent }) {
   )
 }
 
+// True execution timeline: one row per agent, a bar positioned by its actual
+// started_at/finished_at offset from the run start — unlike the flat event
+// log below, this visually shows concurrent agents (e.g. Disease ‖ Drug
+// Interaction, Explainability ‖ Evidence Verification) as overlapping bars.
+function AgentGantt({ run }) {
+  const rows = (run?.agents || []).filter((a) => a.started_at)
+  if (!run?.started_at || rows.length === 0) return null
+
+  const startMs = new Date(run.started_at).getTime()
+  const endMs = run.finished_at ? new Date(run.finished_at).getTime() : Date.now()
+  const totalMs = Math.max(1, endMs - startMs)
+
+  return (
+    <div className="space-y-2">
+      {rows.map((a) => {
+        const cfg = st(a.status)
+        const s = new Date(a.started_at).getTime()
+        const e = a.finished_at ? new Date(a.finished_at).getTime() : endMs
+        const left = Math.max(0, ((s - startMs) / totalMs) * 100)
+        const width = Math.min(100 - left, Math.max(0.8, ((e - s) / totalMs) * 100))
+        return (
+          <div key={a.name} className="flex items-center gap-2">
+            <span className="w-36 shrink-0 truncate text-xs font-medium text-foreground" title={a.title}>
+              {a.title}
+            </span>
+            <div className="relative h-5 flex-1 overflow-hidden rounded bg-surface-2">
+              <div
+                className="absolute top-0 h-full rounded transition-all duration-300"
+                style={{ left: `${left}%`, width: `${width}%`, backgroundColor: cfg.color }}
+                title={`${a.title}: ${cfg.label} (${fmtMs(a.duration_ms)})`}
+              />
+            </div>
+            <span className="w-14 shrink-0 text-right text-[11px] text-muted">{fmtMs(a.duration_ms)}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// One tile in the Agent Status Dashboard's health grid.
+function HealthTile({ health }) {
+  const healthy = health.healthy
+  const color = !health.enabled ? 'var(--muted)' : healthy ? 'var(--success)' : 'var(--danger)'
+  return (
+    <div className="rounded-xl border border-border bg-surface p-3" title={health.detail}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-xs font-semibold text-foreground">{health.title}</p>
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+      </div>
+      <p className="mt-1 text-[11px] text-muted">
+        {!health.enabled ? 'Disabled' : healthy ? 'Healthy' : 'Unavailable'}
+      </p>
+    </div>
+  )
+}
+
+const RUN_ROW_TONE = { pending: 'neutral', running: 'primary', completed: 'success', failed: 'danger' }
+
 export default function AgentMonitor() {
   const [registry, setRegistry] = useState(null)
+  const [health, setHealth] = useState(null)
+  const [recentRuns, setRecentRuns] = useState([])
   const [symptoms, setSymptoms] = useState([])
   const [medicines, setMedicines] = useState([])
   const [text, setText] = useState('')
@@ -91,11 +160,21 @@ export default function AgentMonitor() {
   const [run, setRun] = useState(null)
   const [running, setRunning] = useState(false)
   const pollRef = useRef(null)
+  const healthPollRef = useRef(null)
   const fileRef = useRef(null)
+
+  const refreshRuns = () => getAgentRuns(10).then(setRecentRuns).catch(() => {})
+  const refreshHealth = (force = false) => getAgentHealth(force).then(setHealth).catch(() => {})
 
   useEffect(() => {
     getAgentRegistry().then(setRegistry).catch(() => {})
-    return () => clearInterval(pollRef.current)
+    refreshHealth()
+    refreshRuns()
+    healthPollRef.current = setInterval(refreshHealth, HEALTH_POLL_MS)
+    return () => {
+      clearInterval(pollRef.current)
+      clearInterval(healthPollRef.current)
+    }
   }, [])
 
   const poll = (runId) => {
@@ -107,12 +186,25 @@ export default function AgentMonitor() {
         if (state.status === 'completed' || state.status === 'failed') {
           clearInterval(pollRef.current)
           setRunning(false)
+          refreshRuns()
+          refreshHealth()
         }
       } catch {
         clearInterval(pollRef.current)
         setRunning(false)
       }
     }, 1200)
+  }
+
+  // Load a past run from the Agent Status Dashboard's recent-runs list.
+  const loadRun = async (runId) => {
+    clearInterval(pollRef.current)
+    setRunning(false)
+    try {
+      setRun(await getAgentRun(runId))
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not load that run'))
+    }
   }
 
   const launch = async () => {
@@ -254,13 +346,67 @@ export default function AgentMonitor() {
               )}
             </Card>
           )}
+
+          {/* Agent Status Dashboard */}
+          <Card>
+            <CardHeader
+              icon={HeartPulse}
+              title="Agent Status Dashboard"
+              subtitle={health ? `${health.healthy_agents}/${health.total_agents} agents healthy` : 'Probing agents…'}
+              action={
+                <button
+                  onClick={() => refreshHealth(true)}
+                  aria-label="Refresh agent health"
+                  title="Refresh agent health"
+                  className="grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
+                >
+                  <RefreshCw size={15} />
+                </button>
+              }
+            />
+            {health && (
+              <>
+                <div className="mb-2 flex items-center gap-2">
+                  <Badge tone={health.status === 'ok' ? 'success' : health.status === 'degraded' ? 'warning' : 'danger'}>
+                    {titleCase(health.status)}
+                  </Badge>
+                  <span className="text-xs text-muted">LLM: {titleCase(health.llm_provider)}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {health.agents.map((h) => <HealthTile key={h.name} health={h} />)}
+                </div>
+              </>
+            )}
+
+            {recentRuns.length > 0 && (
+              <div className="mt-4 border-t border-border pt-4">
+                <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                  <HistoryIcon size={13} /> Recent runs
+                </p>
+                <div className="space-y-1.5">
+                  {recentRuns.map((r) => (
+                    <button
+                      key={r.run_id}
+                      onClick={() => loadRun(r.run_id)}
+                      className="flex w-full items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-surface-2/70"
+                    >
+                      <Badge tone={RUN_ROW_TONE[r.status] || 'neutral'}>{titleCase(r.status)}</Badge>
+                      <span className="truncate text-muted">{titleCase(r.task_type)}</span>
+                      <span className="ml-auto shrink-0 text-muted">{fmtMs(r.duration_ms)}</span>
+                      <span className="shrink-0 text-muted">{formatDate(r.created_at)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
         </div>
 
         {/* Pipeline + observability */}
         <div className="space-y-5 lg:col-span-3">
           {/* Animated pipeline */}
           <Card>
-            <CardHeader icon={Workflow} title="Agent Pipeline" subtitle="OCR → Medicine → Disease ‖ Interactions → Knowledge → Clinical → Explainability → Report → Audit" />
+            <CardHeader icon={Workflow} title="Agent Pipeline" subtitle="OCR → Medicine → Disease ‖ Interactions → Knowledge → Clinical → Explainability ‖ Evidence Verification → Report → Audit" />
             {nodes.length === 0 ? (
               <EmptyState icon={Workflow} title="Pipeline will appear here" description="Run the pipeline to watch each agent execute in real time." />
             ) : (
@@ -280,10 +426,26 @@ export default function AgentMonitor() {
             )}
           </Card>
 
-          {/* Timeline */}
+          {/* Execution Timeline — true time-axis view, shows parallel agents as overlapping bars */}
+          {run && (
+            <Card>
+              <CardHeader
+                icon={GanttChartSquare}
+                title="Execution Timeline"
+                subtitle="Each agent's actual start → finish offset — overlapping bars are running in parallel"
+              />
+              {run.agents?.some((a) => a.started_at) ? (
+                <AgentGantt run={run} />
+              ) : (
+                <p className="text-sm text-muted">Waiting for the first agent to start…</p>
+              )}
+            </Card>
+          )}
+
+          {/* Event log */}
           {run?.timeline?.length > 0 && (
             <Card>
-              <CardHeader icon={ListChecks} title="Timeline" subtitle="Milestones as each stage finishes" />
+              <CardHeader icon={ListChecks} title="Event Log" subtitle="Milestones as each stage finishes" />
               <ul className="space-y-1.5">
                 {run.timeline
                   .filter((t) => ['agent_completed', 'agent_skipped', 'agent_failed', 'workflow_completed'].includes(t.type))

@@ -59,3 +59,12 @@ class OCRAgent(BaseAgent):
             details={"medicine_count": med_count, "provider": ocr_dict.get("provider"),
                      "quality": quality},
         )
+
+    async def health_check(self) -> tuple[bool, str]:
+        try:
+            import backend.ocr.pipeline  # noqa: F401 — import proves the OCR stack loads
+
+            from backend.config import settings
+            return True, f"OCR stack loaded (provider={settings.OCR_PROVIDER})."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"OCR stack failed to load: {exc}"

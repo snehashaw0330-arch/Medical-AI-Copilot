@@ -139,6 +139,7 @@ class AgentManager:
         knowledge = _get(MemoryKeys.KNOWLEDGE)
         clinical = _get(MemoryKeys.CLINICAL)
         report = _get(MemoryKeys.REPORT)
+        evidence_verification = _get(MemoryKeys.EVIDENCE_VERIFICATION)
         return {
             "ocr": {
                 "provider": ocr.get("provider"),
@@ -158,6 +159,11 @@ class AgentManager:
             } if clinical else None,
             "report_id": report.get("report_id") if report else None,
             "explanation": bool(snap.get(MemoryKeys.EXPLANATION)),
+            "evidence_verification": {
+                "hallucination_risk": evidence_verification.get("metrics", {}).get("hallucination_risk"),
+                "confidence": evidence_verification.get("metrics", {}).get("confidence"),
+                "evidence_coverage": evidence_verification.get("metrics", {}).get("evidence_coverage"),
+            } if evidence_verification else None,
         }
 
 

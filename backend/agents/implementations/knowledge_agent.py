@@ -93,3 +93,15 @@ class KnowledgeAgent(BaseAgent):
             confidence=result["confidence"],
             details={"sources": result["sources"]},
         )
+
+    async def health_check(self) -> tuple[bool, str]:
+        try:
+            from backend.rag.retriever import get_retriever
+
+            retriever = get_retriever()
+            ok = retriever.available()
+            count = retriever.count() if ok else 0
+            return ok, (f"RAG index ready ({count} chunk(s))." if ok
+                        else "Embedder or vector store unavailable.")
+        except Exception as exc:  # noqa: BLE001
+            return False, f"RAG knowledge base check failed: {exc}"

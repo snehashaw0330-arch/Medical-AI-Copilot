@@ -56,3 +56,6 @@ class AuditAgent(BaseAgent):
             confidence=None,
             details=audit["totals"],
         )
+
+    async def health_check(self) -> tuple[bool, str]:
+        return True, "In-memory decision log — no external dependency."

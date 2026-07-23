@@ -112,7 +112,7 @@ class RunStore:
                 state.started_at = event.timestamp
             elif event.type == EventType.AGENT_STARTED:
                 state.current_agent = event.agent
-                self._set_agent(state, event.agent, AgentStatus.RUNNING)
+                self._set_agent(state, event.agent, AgentStatus.RUNNING, started_at=event.timestamp)
             elif event.type in (
                 EventType.AGENT_COMPLETED, EventType.AGENT_SKIPPED, EventType.AGENT_FAILED,
             ):
@@ -125,6 +125,7 @@ class RunStore:
                     state, event.agent, status,
                     confidence=event.payload.get("confidence"),
                     duration_ms=event.payload.get("duration_ms"),
+                    finished_at=event.timestamp,
                 )
                 state.completed_agents = sum(
                     1 for a in state.agents
@@ -143,6 +144,7 @@ class RunStore:
     def _set_agent(
         state: RunState, name: str | None, status: AgentStatus,
         *, confidence: float | None = None, duration_ms: float | None = None,
+        started_at: datetime | None = None, finished_at: datetime | None = None,
     ) -> None:
         for rec in state.agents:
             if rec.name == name:
@@ -151,6 +153,10 @@ class RunStore:
                     rec.confidence = confidence
                 if duration_ms is not None:
                     rec.duration_ms = duration_ms
+                if started_at is not None:
+                    rec.started_at = started_at
+                if finished_at is not None:
+                    rec.finished_at = finished_at
                 return
 
     # -- reads ------------------------------------------------------------

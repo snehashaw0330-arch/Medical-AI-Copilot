@@ -75,3 +75,11 @@ class ReportAgent(BaseAgent):
             confidence=1.0 if report_id else None,
             details={"report_id": report_id},
         )
+
+    async def health_check(self) -> tuple[bool, str]:
+        try:
+            import backend.report_generator  # noqa: F401 — proves the report stack loads
+
+            return True, "Report generator loaded."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Report generator failed to load: {exc}"

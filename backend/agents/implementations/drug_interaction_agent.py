@@ -41,3 +41,15 @@ class DrugInteractionAgent(BaseAgent):
                    if names else "No interactions to report.")
         return AgentOutcome(summary=summary, confidence=confidence,
                             details={"overall_risk": risk, "interaction_count": len(interactions)})
+
+    async def health_check(self) -> tuple[bool, str]:
+        try:
+            import asyncio
+
+            from backend.drug_interactions.service import build_source
+
+            source = build_source()
+            knowledge = await asyncio.to_thread(source.load)
+            return True, f"Interaction dataset loaded ({len(knowledge.pairs)} rule(s))."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Interaction dataset failed to load: {exc}"

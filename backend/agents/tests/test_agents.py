@@ -144,11 +144,39 @@ def test_task_router_classification():
 def test_registry_meta_and_disable_toggle():
     reg = AgentRegistry()
     metas = reg.meta()
-    assert len(metas) == 9
+    assert len(metas) == 10
     assert reg.is_enabled("ocr")
     reg_disabled = AgentRegistry(AgentConfig(disabled=frozenset({"ocr"})))
     assert not reg_disabled.is_enabled("ocr")
     assert not next(m for m in reg_disabled.meta() if m.name == "ocr").enabled
+
+
+def test_base_agent_default_health_check_is_healthy():
+    async def go():
+        healthy, detail = await WriterAgent().health_check()
+        assert healthy is True
+        assert detail
+
+    asyncio.run(go())
+
+
+def test_health_monitor_reports_disabled_agent_as_unhealthy():
+    # Disabled agents are reported unhealthy without constructing them (fast,
+    # no ML/OCR/RAG dependency loaded) — the real-agent probes are exercised
+    # by the live `/agents/health` endpoint instead, not this fast unit suite.
+    async def go():
+        from backend.agents.health_monitor import AgentHealthMonitor
+
+        monitor = AgentHealthMonitor(AgentRegistry(AgentConfig(disabled=frozenset({"ocr"}))))
+        health = await monitor.check("ocr")
+        assert health.enabled is False
+        assert health.healthy is False
+        assert "disabled" in health.detail.lower()
+
+        unknown = await monitor.check("does-not-exist")
+        assert unknown.healthy is False
+
+    asyncio.run(go())
 
 
 # ==========================================================================

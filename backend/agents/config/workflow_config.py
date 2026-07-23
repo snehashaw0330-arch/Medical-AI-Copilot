@@ -6,12 +6,14 @@ what lets the engine run independent agents in parallel while honouring the
 overall order:
 
     OCR → Medicine → (Disease ‖ Drug-Interaction) → Knowledge →
-    Clinical → Explainability → Report → Audit
+    Clinical → (Explainability ‖ Evidence Verification) → Report → Audit
 
 Disease and Drug-Interaction are independent (one reads symptoms, the other reads
-the medicine list), so they form a single concurrent stage — demonstrating the
-parallelism the requirements ask for. Editing this list reshapes the pipeline
-without touching any agent or the engine (Open-Closed).
+the medicine list), so they form a single concurrent stage. Explainability and
+Evidence Verification are likewise independent of each other — both only read
+Clinical/Knowledge output — so they form a second concurrent stage,
+demonstrating the parallelism the requirements ask for. Editing this list
+reshapes the pipeline without touching any agent or the engine (Open-Closed).
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ class WorkflowConfig:
         [ac.DISEASE, ac.DRUG_INTERACTION],   # concurrent
         [ac.KNOWLEDGE],
         [ac.CLINICAL],
-        [ac.EXPLAINABILITY],
+        [ac.EXPLAINABILITY, ac.EVIDENCE_VERIFICATION],   # concurrent
         [ac.REPORT],
         [ac.AUDIT],
     ])
